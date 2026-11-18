@@ -6658,7 +6658,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (158)
+### test/bats/unit/self_test_yaml_spec.bats (160)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7136,6 +7136,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)` | The hosted environment. The roster runs in a job matrix of its own, `mutation-roster`, named for what it does, and not inside lint-static, where it took about 97% of each shard and was invisible from the checks page (base#1571). Its legs are exactly shards 1/N..N/N, so together they probe every row; each leg runs the roster exactly once, on its own shard, with no `if:` and no continue-on-error, and a red roster fails the step. No lint-static leg runs it at all. |
 | `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
 | `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
+| `self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)` | Branch protection requires ci-rollup alone. A single-issue-pr job outside its needs would be a check nobody is blocked by, and a select_single_issue_pr key would let classify skip it on a doc-only PR, which is exactly where a bundled PR slips through (base#1629). |
+| `self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)` | needs: alone only orders the job. A single-issue-pr job whose step stopped invoking the script would stay green on every PR and gate nothing, so the job body itself must run the script (base#1629). |
 
 ### test/bats/unit/setup_cmd_spec.bats (226)
 
@@ -7774,6 +7776,30 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the three lints share ONE reader pass (#994)` | The one-reader claim in the driver header is the reason three lints live in one file, and it is a performance AND a correctness claim: three passes could disagree about where a function begins. This is the case that keeps the memoisation from being quietly lost. |
 | `_run_shell_metrics: reports all three metrics in one run (#994)` | The combined report is what `just test metrics` runs, so it has to say all three states in one pass rather than stopping at the first -- a report that stopped would hide two thirds of the tree behind whichever metric ran first. |
 | `_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)` | The combined report has three verdicts to reconcile and one exit status to say them in. Failing when ANY metric is past its own ceiling is what keeps it from being the loosest of the three -- the shape a caller would reach for if it reported the union but judged by the minimum. |
+
+### test/bats/unit/single_issue_pr_spec.bats (15)
+
+Nothing read what a PR will close, so "Closes #1 Closes #2" passed every
+check. These specs pin the verdict at the script's public interface,
+base#1629.
+
+| Test | Description |
+|------|-------------|
+| `single_issue_pr.sh: two closing references fail and the message names both (base#1629)` | The whole point of the check. A script that always exited 0 would leave the bundled-PR habit unenforced; the message must name both issues so the author knows what to split (base#1629). |
+| `single_issue_pr.sh: two closing keywords in commit messages fail with empty closing refs (base#1629)` | The repo squashes with COMMIT_MESSAGES, so a closing keyword in a branch commit closes the issue even when GitHub's reference list for the PR is empty. A script that ignored PR_COMMITS would pass a bundled squash body (base#1629). |
+| `single_issue_pr.sh: the same issue as a qualified ref and a bare commit ref passes (base#1629)` | The same issue reached two ways (GitHub's qualified reference and a bare `#1` in a commit message) is one issue. A script that counted distinct strings would fail a PR that closes exactly one issue (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside a fenced code block is ignored (base#1629)` | A closing keyword inside a fenced code block is quoted text, not a directive, and GitHub does not act on it. A script that grepped raw text would fail a PR that closes exactly one issue because a commit message quotes an example (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside inline code is ignored (base#1629)` | Inline code is quoted text too. A script that only stripped fenced blocks would fail a PR that closes exactly one issue because a commit message mentions `Closes #2` in backticks (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside an HTML comment is ignored (base#1629)` | An HTML comment is not rendered and GitHub does not act on a closing keyword inside it (PR templates ship such comments). A script that only stripped code would fail a PR that closes exactly one issue because a commit message carries a commented-out example (base#1629). |
+| `single_issue_pr.sh: closing keywords written with a colon count (base#1629)` | GitHub accepts a colon after the closing keyword ("Closes: #2"). A script that only matched keyword-space-number would pass a PR that closes two issues written in that form (base#1629). |
+| `single_issue_pr.sh: a comma-separated list after one keyword counts every issue (base#1629)` | GitHub's closing keyword applies to every reference in a comma-separated list ("Closes #1, #2" closes both). A script that only read the number right after the keyword would pass a PR that closes two issues written as one list (base#1629). |
+| `single_issue_pr.sh: an exemption marker with a reason passes and prints the reason (base#1629)` | The check needs an explicit, visible escape hatch for a PR that legitimately closes several issues. A script with no exemption would force authors to defeat the check some other way; the reason must be echoed so the bypass is visible in the job log (base#1629). |
+| `single_issue_pr.sh: with PR_CLOSING_REFS unset the PR body is parsed instead (base#1629)` | Outside CI (a local run, or a hook) there is no GraphQL answer. With PR_CLOSING_REFS unset the script must fall back to the closing keywords in PR_BODY; a script that read only PR_CLOSING_REFS would pass a body that closes two issues (base#1629). |
+| `single_issue_pr.sh: the same number in two repositories counts as two issues (base#1629)` | Issue numbers are per repository. a/b#1 and c/d#1 are two different issues, so a script that compared only the number after `#` would call this PR single-issue and pass it (base#1629). |
+| `single_issue_pr.sh: bold closing keywords in commit messages count (base#1629)` | Authors write closing keywords in markdown bold. A parser that requires the keyword to be followed directly by whitespace misses `**Closes** #1`, so a PR closing two issues that way would pass (base#1629). |
+| `single_issue_pr.sh: owner/repo qualified closing refs in commit messages count (base#1629)` | A closing keyword can point at an issue in another repository (`Closes owner/repo#N`). A parser that only accepts `#N` right after the keyword drops these, so a PR closing two cross-repository issues through its commit messages would pass (base#1629). |
+| `single_issue_pr.sh: an upper-case keyword and its reference on the next line count (base#1629)` | Commit messages get wrapped, so the keyword can end a line and the reference start the next. A parser that matches line by line misses `CLOSES` followed by `#1` on the next line, so a PR closing two issues that way would pass (design item 7, base#1629). |
+| `single_issue_pr.sh: closing keywords followed by issue URLs count (base#1629)` | GitHub accepts a full issue URL after a closing keyword, and a squash body that carries one closes that issue. A parser that read only `#N` forms would pass a PR closing two issues by URL (base#1629). |
 
 ### test/bats/unit/smoke_harness_spec.bats (15)
 
