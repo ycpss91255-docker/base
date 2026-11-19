@@ -192,7 +192,7 @@ readonly _JP_MARKER_RE=(
   '(casey/just/releases/download|releases/download/[^"]*just)'
   'setup-just'
   'just\.systems/install\.sh'
-  '(apk add|apt-get install|apt install|brew install|cargo install|dnf install|yum install|pacman -S|snap install|pkg install|port install|choco install|scoop install|winget install|npm install|pipx install|go install|asdf install|mise install|mise use|nix-env)([^a-zA-Z0-9_-]|.*[^a-zA-Z0-9_-])just([^a-zA-Z0-9_.-]|$)'
+  '(apk add|apk-retry add|apt-get install|apt install|brew install|cargo install|dnf install|yum install|pacman -S|snap install|pkg install|port install|choco install|scoop install|winget install|npm install|pipx install|go install|asdf install|mise install|mise use|nix-env)([^a-zA-Z0-9_-]|.*[^a-zA-Z0-9_-])just([^a-zA-Z0-9_.-]|$)'
 )
 # Empty = the mechanism has no pinnable form at all; such a site must be
 # advisory.
