@@ -196,6 +196,18 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 		{"r6", "a = { b = [1] \n}\n", 1, 15},
 		{"r1-form", "a = {b = 1,\n c = 2}\n", 1, 12},
 		{"crlf", "a = {\r\nb = 1}\r\n", 1, 6},
+		// A comment stops before the CRLF that ends its line, so the
+		// refusal names that CR: r2 with CR(16) LF(17). tomllib refuses it
+		// ("Unclosed inline table", rc=1) and BurntSushi v1.6.0 decodes it
+		// to map[a:map[b:1]] (run 2026-11-19, base#1850).
+		{"r2-crlf", "a = { b = 1 # c\r\n}\r\n", 1, 16},
+		// A basic string left open at its line end stops before that
+		// line's CRLF in the same way: a(1) ' '(2) =(3) ' '(4) {(5) ' '(6)
+		// b(7) ' '(8) =(9) ' '(10) "(11) x(12) CR(13). Both parsers refuse
+		// this row (tomllib "Illegal character", BurntSushi "strings
+		// cannot contain newlines", run 2026-11-19); it pins the column
+		// only (base#1850).
+		{"basic-crlf", "a = { b = \"x\r\n}\r\n", 1, 13},
 		// Between a key and its `=`, and between the `=` and the value,
 		// the structural pass refuses the line ending where it stands;
 		// tomllib (run 2026-11-02) refuses both at the same column,
