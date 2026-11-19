@@ -35,10 +35,12 @@ for end in BASE_SHA HEAD_SHA; do
   fi
 done
 
-# The hook's marker list, built from parts so the repository's own
-# attribution guards do not fire on this file, base#1989.
+# The hook's marker list, one pattern per alternative so each hit names the
+# marker it found, built from parts so the repository's own attribution
+# guards do not fire on this file, base#1989.
 model="Cla""ude"
-markers="Generated with (\\[)?${model} Code|Co-Authored-By:[[:space:]]*${model}"
+footer="Generated with (\\[)?${model} Code"
+coauthor="Co-Authored-By:[[:space:]]*${model}"
 # The model vendor's noreply address, matched as a fixed string anywhere in
 # the message so a trailer under any key carrying it fails, base#1989.
 addr="noreply@""anthropic.com"
@@ -57,8 +59,11 @@ while IFS= read -r sha; do
   # with a space before the colon in canonical `key: value` form, so the
   # marker list sees it too, base#1989.
   msg="$(git log -1 --format='%B%n%(trailers:unfold)' "${sha}")"
-  if grep -qiE "${markers}" <<<"${msg}"; then
-    _hit "${sha}" "attribution marker in message"
+  if grep -qiE "${footer}" <<<"${msg}"; then
+    _hit "${sha}" "generated-with footer in message"
+  fi
+  if grep -qiE "${coauthor}" <<<"${msg}"; then
+    _hit "${sha}" "co-author trailer naming the model in message"
   fi
   if grep -qiF "${addr}" <<<"${msg}"; then
     _hit "${sha}" "noreply address in message"
