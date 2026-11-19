@@ -134,6 +134,22 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: noreply address as committer email"
 }
 
+# why: Email addresses are matched without regard to case, so an author
+# email that spells the noreply address in mixed case is the same address.
+# A check that compared the author email case-sensitively would pass a
+# commit authored as `NoReply@Anthropic.com` with a clean message, so this
+# pins exit 1 and the sha for it (base#1989).
+@test "check_commit_attribution.sh: a mixed-case author email equal to the noreply address fails and names the sha (base#1989)" {
+  GIT_AUTHOR_EMAIL="$(printf '%s@%s.%s' "NoReply" "Anthropic" "com")" \
+    git -C "${REPO}" commit -q --allow-empty -m "feat: x"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: noreply address as author email"
+}
+
 # why: The workflow also runs on push and on release tags, where there is no
 # pull request range to walk. A check that demanded BASE_SHA and HEAD_SHA on
 # every event would fail those runs, so this pins exit 0 and the no-range
