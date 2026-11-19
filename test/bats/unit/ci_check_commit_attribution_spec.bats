@@ -181,6 +181,21 @@ _run_pr() {
   assert_output --partial "no AI attribution in 1 commit(s)"
 }
 
+# why: The committer rule is read on its own and is also an email equal to
+# the noreply address. A check that matched the address anywhere in the
+# committer email would fail a commit committed under
+# `noreply@anthropic.com.example.org` with a human author and a clean
+# message, so this pins exit 0 and no committer-email error (base#1989).
+@test "check_commit_attribution.sh: a committer email that only contains the noreply address passes (base#1989)" {
+  GIT_COMMITTER_EMAIL="$(_addr).example.org" \
+    git -C "${REPO}" commit -q --allow-empty -m "feat: x"
+
+  _run_pr
+  assert_equal "${status}" 0
+  refute_output --partial "noreply address as committer email"
+  assert_output --partial "no AI attribution in 1 commit(s)"
+}
+
 # why: The workflow also runs on push and on release tags, where there is no
 # pull request range to walk. A check that demanded BASE_SHA and HEAD_SHA on
 # every event would fail those runs, so this pins exit 0 and the no-range
