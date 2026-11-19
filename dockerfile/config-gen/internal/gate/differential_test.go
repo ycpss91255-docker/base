@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/testcorpus"
 )
 
@@ -117,5 +118,64 @@ func TestOracleRows(t *testing.T) {
 	}
 	if err := checkOracleRows(rows, files); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// 2^63 (int64 max + 1) in decimal and hex, and two out-of-range tokens in
+// one file. The false rows: a second, non-integer refusal behind the
+// integer; a float range refusal (1e999); a key that carries the int64
+// message text; a hand-built error whose Message names an int64 overflow
+// but whose span is not an integer; and a hand-built span over int64 max,
+// which is in range. Errors come from BurntSushi v1.6.0's toml.Decode,
+// except the two hand-built ParseError values.
+func TestInt64Only(t *testing.T) {
+	decodeErr := func(t *testing.T, src string) error {
+		t.Helper()
+		var v map[string]any
+		_, err := toml.Decode(src, &v)
+		if err == nil {
+			t.Fatalf("toml.Decode(%q) = nil, want a refusal to test int64Only on", src)
+		}
+		return err
+	}
+	cases := []struct {
+		name string
+		src  string
+		err  func(t *testing.T, src string) error
+		want bool
+	}{
+		{"decimal 2^63", "a = 9223372036854775808\n", decodeErr, true},
+		{"hex 2^63", "a = 0x8000000000000000\n", decodeErr, true},
+		{"two out-of-range tokens", "a = -9223372036854775809\nb = [9223372036854775808]\n", decodeErr, true},
+		{"second refusal not an integer", "a = 9223372036854775808\nb = tru\n", decodeErr, false},
+		{"float range", "a = 1e999\n", decodeErr, false},
+		{"key carries the int64 message", "\"x is out of range for int64\" = tru\n", func(t *testing.T, src string) error {
+			t.Helper()
+			err := decodeErr(t, src)
+			if !strings.Contains(err.Error(), "out of range for int64") {
+				t.Fatalf("toml.Decode(%q) error = %q; the decoy needs it to contain %q", src, err.Error(), "out of range for int64")
+			}
+			return err
+		}, false},
+		{"message names int64, span is not an integer", "\"9223372036854775808\" = 1\n", func(*testing.T, string) error {
+			return toml.ParseError{
+				Message:  "9223372036854775808 is out of range for int64",
+				Position: toml.Position{Line: 1, Start: 0, Len: 3},
+			}
+		}, false},
+		{"span over int64 max", "a = 9223372036854775807\n", func(*testing.T, string) error {
+			return toml.ParseError{
+				Message:  "9223372036854775807 is out of range for int64",
+				Position: toml.Position{Line: 1, Start: 4, Len: 19},
+			}
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.err(t, tc.src)
+			if got := int64Only([]byte(tc.src), err); got != tc.want {
+				t.Fatalf("int64Only(%q, %v) = %v, want %v", tc.src, err, got, tc.want)
+			}
+		})
 	}
 }
