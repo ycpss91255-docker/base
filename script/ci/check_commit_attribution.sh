@@ -6,8 +6,9 @@
 #
 # Walks `git rev-list BASE_SHA..HEAD_SHA` and matches each commit's message
 # against the marker list of the local attribution hook and the model
-# vendor's noreply address. The list is copied here because the hook lives
-# outside the repository and CI cannot read it.
+# vendor's noreply address, and its author and committer emails against that
+# address. The list is copied here because the hook lives outside the
+# repository and CI cannot read it.
 # Prints `::error::commit <sha>: <marker>` for each hit and exits 1 when any
 # commit hits.
 set -euo pipefail
@@ -44,6 +45,12 @@ addr="noreply@""anthropic.com"
 
 hits=0
 count=0
+# _hit <sha> <marker>: report one hit and count it.
+_hit() {
+  printf '::error::commit %s: %s\n' "$1" "$2"
+  hits=$((hits + 1))
+}
+
 while IFS= read -r sha; do
   count=$((count + 1))
   # The body plus git's own unfolded trailers: git prints a trailer written
@@ -51,24 +58,20 @@ while IFS= read -r sha; do
   # marker list sees it too, base#1989.
   msg="$(git log -1 --format='%B%n%(trailers:unfold)' "${sha}")"
   if grep -qiE "${markers}" <<<"${msg}"; then
-    printf '::error::commit %s: attribution marker in message\n' "${sha}"
-    hits=$((hits + 1))
+    _hit "${sha}" "attribution marker in message"
   fi
   if grep -qiF "${addr}" <<<"${msg}"; then
-    printf '::error::commit %s: noreply address in message\n' "${sha}"
-    hits=$((hits + 1))
+    _hit "${sha}" "noreply address in message"
   fi
   # The address as the author identity is attribution even when the message
   # is clean, base#1989.
   if grep -qixF "${addr}" <<<"$(git log -1 --format='%ae' "${sha}")"; then
-    printf '::error::commit %s: noreply address as author email\n' "${sha}"
-    hits=$((hits + 1))
+    _hit "${sha}" "noreply address as author email"
   fi
   # The committer identity is read on its own: a commit can keep a human
   # author while the address commits it, base#1989.
   if grep -qixF "${addr}" <<<"$(git log -1 --format='%ce' "${sha}")"; then
-    printf '::error::commit %s: noreply address as committer email\n' "${sha}"
-    hits=$((hits + 1))
+    _hit "${sha}" "noreply address as committer email"
   fi
 done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
 
