@@ -616,3 +616,48 @@ func TestCheckAcceptsRefusedFormBytesOutsideTheirContext(t *testing.T) {
 		}
 	}
 }
+
+// Normalize rewrites only a TOML 1.0 float literal in value position: a
+// float token that breaks the float ABNF (a leading zero, a doubled,
+// leading or trailing underscore, a fraction with no digits) is left byte
+// for byte, so the decoder refuses it as tomllib does, however far past
+// float64 max its value would be, and a bare key or a string spelled like
+// a float is not a float at all (TOML 1.0 keys and strings). A rewritten
+// literal becomes `inf`, keeping its sign, padded with spaces to its own
+// length (base#1851). tomllib (a Lib/tomllib copy under python3 -I,
+// 2026-11-02, base#1441) refuses every left float row and loads every
+// rewritten row as an infinity.
+func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
+	for _, src := range []string{
+		"a = 01e999\n",
+		"a = 00.5e999\n",
+		"a = +01.5e999\n",
+		"a = 0_1e999\n",
+		"a = 1__0e999\n",
+		"a = 1_e999\n",
+		"a = 1e_999\n",
+		"a = 1e+_999\n",
+		"a = 1e999_\n",
+		"a = 1.e999\n",
+		"1e999 = 1\n",
+		"a = \"1e999\"\n",
+		"a = '1e999'\n",
+	} {
+		if got := string(Normalize([]byte(src))); got != src {
+			t.Errorf("Normalize(%q) = %q, want it unchanged", src, got)
+		}
+	}
+	for _, tc := range []struct{ src, want string }{
+		{"a = 1e999\n", "a = inf  \n"},
+		{"a = 1_0e999\n", "a = inf    \n"},
+		{"a = 1.0_0e99_9\n", "a = inf       \n"},
+		{"a = 1E+999\n", "a = inf   \n"},
+		{"a = +1e999\n", "a = +inf  \n"},
+		{"a = -1e999\n", "a = -inf  \n"},
+		{"1e999 = 1e999\n", "1e999 = inf  \n"},
+	} {
+		if got := string(Normalize([]byte(tc.src))); got != tc.want {
+			t.Errorf("Normalize(%q) = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}
