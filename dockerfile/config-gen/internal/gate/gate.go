@@ -26,7 +26,15 @@ const (
 	// ReasonTimeNoSeconds is a time value written as HH:MM, without the
 	// seconds the TOML 1.0 partial-time requires (TOML 1.1 only).
 	ReasonTimeNoSeconds
+	// ReasonBOM is a byte order mark at the start of the file: UTF-8
+	// (EF BB BF) or UTF-16 (FF FE, FE FF). TOML 1.0 has none.
+	ReasonBOM
 )
+
+// bomPrefixes is the whole list of leading byte order marks the decoder
+// strips before it lexes (BurntSushi v1.6.0 parse.go:47-51), each of
+// which the TOML 1.0 oracle refuses (base#1850).
+var bomPrefixes = [][]byte{[]byte("\xEF\xBB\xBF"), []byte("\xFF\xFE"), []byte("\xFE\xFF")}
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
 // the byte column after the last LF.
@@ -67,10 +75,16 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // or the CR of a CRLF) of a line ending outside a string or comment
 // whose innermost open `[` / `{` container is an inline table, the comma
 // of an inline table's trailing comma, or the first byte of a bare
-// token that is a time without seconds. The same
+// token that is a time without seconds; or the first byte of a leading
+// byte order mark. The same
 // bytes in a comment, a literal string or a multi-line literal are TOML
 // 1.0 and are accepted.
 func Check(label string, src []byte) error {
+	for _, p := range bomPrefixes {
+		if bytes.HasPrefix(src, p) {
+			return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
+		}
+	}
 	var open []byte
 	prev := 0
 	// Every token is at least one byte, so src holds at most len(src).
