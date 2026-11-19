@@ -135,6 +135,20 @@ _run_pr() {
   assert_output --partial "no AI attribution in 1 commit(s)"
 }
 
+# why: Git keeps a prose line inside a trailer block when one trailer there
+# is one it knows, such as Signed-off-by, but that line is not a trailer.
+# A check that read the whole trailer block, not only its trailer lines,
+# would fail such a line that names the address, so this pins exit 0 and no
+# error line (base#1989).
+@test "check_commit_attribution.sh: a prose line inside the trailer block that names the noreply address passes (base#1989)" {
+  _commit "$(printf 'feat: x\n\nSigned-off-by: A <a@example.com>\nsee %s for details' "$(_addr)")"
+
+  _run_pr
+  assert_equal "${status}" 0
+  refute_output --partial "::error::"
+  assert_output --partial "no AI attribution in 1 commit(s)"
+}
+
 # why: Git accepts a space before a trailer's colon and prints the trailer in
 # canonical `key: value` form. A check that ran the marker list over the raw
 # body alone would pass `<key> : <model> <other address>`, which names the
