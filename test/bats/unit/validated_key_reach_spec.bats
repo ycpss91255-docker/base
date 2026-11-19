@@ -401,24 +401,37 @@ _reach_part_from_title() {
   return 1
 }
 
+# Print, one per line, the non-exempt fields of the context record named
+# <ctx> that the reach part named by this @test's title checks
+# (base#2003). Fails, saying why, when the title is not a reach-part
+# title, when a stage of the selection fails, or when it selects nothing.
+_reach_part_fields() {
+  local -n _rpf_ctx="${1:?missing context record}"
+  local _k _all _part _f
+  _k="$(_reach_part_from_title "${BATS_TEST_DESCRIPTION}")" || { echo "${_k}"; return 1; }
+  _all="$(set -o pipefail
+    for _f in "${!_rpf_ctx[@]}"; do
+      [[ -v "_REACH_EXEMPT[${_f}]" ]] || printf '%s\n' "${_f}"
+    done | LC_ALL=C sort)" || { echo "listing the deploy-context fields failed"; return 1; }
+  _part="$(_reach_part_of "${_k}" 4 <<< "${_all}")" || { echo "selecting reach part ${_k} failed"; return 1; }
+  [[ -n "${_part}" ]] || { echo "reach part ${_k} selected no field"; return 1; }
+  printf '%s\n' "${_part}"
+}
+
 # The reach check for the part this @test's title names (base#2003): each
 # non-exempt field of that part must change the bundle compose.
 _reach_check_part() {
-  local _k
-  _k="$(_reach_part_from_title "${BATS_TEST_DESCRIPTION}")" || { echo "${_k}"; false; }
-
   local _base_dir _baseline="${TEMP_DIR}/baseline.yaml"
   _base_dir="$(_conf_dir "${_REACH_BASE}")"
   local -A _ctx=() _base_binds=()
   _resolve_deploy_context "${_base_dir}" _ctx
-  _generate_resolved_compose "${_base_dir}" runtime img name "${_baseline}" _base_binds _ctx
 
+  local _sel
+  _sel="$(_reach_part_fields _ctx)" || { echo "${_sel}"; return 1; }
   local -a _fields=()
-  mapfile -t _fields < <(
-    for _f in "${!_ctx[@]}"; do
-      [[ -v "_REACH_EXEMPT[${_f}]" ]] || printf '%s\n' "${_f}"
-    done | LC_ALL=C sort | _reach_part_of "${_k}" 4
-  )
+  mapfile -t _fields <<< "${_sel}"
+
+  _generate_resolved_compose "${_base_dir}" runtime img name "${_baseline}" _base_binds _ctx
 
   local _f _inert="" _probe _dir _out
   for _f in "${_fields[@]}"; do
