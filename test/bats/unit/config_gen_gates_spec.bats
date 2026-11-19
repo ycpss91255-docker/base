@@ -195,6 +195,101 @@ _df_instructions() {
   assert_output 1
 }
 
+# _df_run_body <stage> <ere> -- the shell text of the one RUN in <stage>
+# whose joined instruction matches <ere>, with `RUN` and its --flag=value
+# options removed, the corpus root record read from ${S}/corpus-root
+# instead of /tmp. Fails when no RUN or more than one matches.
+_df_run_body() {
+  local _b
+  _df_instructions > "${S}/df"
+  _b="$(awk -F'\t' -v st="${1}" -v re="${2}" '
+    $1 == st && $2 ~ /^RUN / && $2 ~ re { n++; b = $2 }
+    END {
+      if (n != 1) exit 1
+      sub(/^RUN +/, "", b)
+      while (b ~ /^--[a-z-]+=[^ ]+ +/) sub(/^--[a-z-]+=[^ ]+ +/, "", b)
+      print b
+    }' "${S}/df")" || return 1
+  printf '%s\n' "${_b//\/tmp\/config-gen-corpus-root/${S}/corpus-root}"
+}
+
+# _stub_go -- a `go` first on PATH, recording each call's argv as one line
+# of ${S}/go.calls. `go list ./...` prints m/a and m/b and exits
+# ${S}/go.list.rc; `go test -list` prints FuzzA for ./internal/gate and
+# FuzzB for any other package, and exits ${S}/go.tlist.rc; `go test -fuzz`
+# exits ${S}/go.fuzz.rc; and `go mod <verb>` exits ${S}/go.mod.<verb>.rc.
+# Each rc defaults to 0.
+_stub_go() {
+  cat > "${S}/bin/go" <<EOF
+#!$(command -v bash)
+printf '%s\n' "\$*" >> "${S}/go.calls"
+rc() { cat "${S}/go.\${1}.rc" 2>/dev/null || echo 0; }
+case "\${1:-}" in
+  list) printf 'm/a\nm/b\n'; exit "\$(rc list)" ;;
+  test)
+    for a in "\$@"; do
+      [[ "\${a}" == -fuzz ]] && exit "\$(rc fuzz)"
+    done
+    for a in "\$@"; do
+      if [[ "\${a}" == -list ]]; then
+        if [[ "\${*: -1}" == ./internal/gate ]]; then printf 'FuzzA\n'; else printf 'FuzzB\n'; fi
+        printf 'ok  \t%s\t0.01s\n' "\${*: -1}"
+        exit "\$(rc tlist)"
+      fi
+    done ;;
+esac
+exit 0
+EOF
+  chmod +x "${S}/bin/go"
+}
+
+# _run_df_body <body> -- <body> under the Dockerfile's SHELL (bash -euo
+# pipefail -c) in ${S}/mod with the stubs first on PATH.
+_run_df_body() {
+  mkdir -p "${S}/mod"
+  run --separate-stderr bash -c 'cd "$1" && PATH="$2:${PATH}" exec bash -euo pipefail -c "$3"' _ \
+    "${S}/mod" "${S}/bin" "${1}"
+}
+
+# why: The fuzz gate (base#1850) is "a 60-second fuzz run on the gate":
+# it searches the Fuzz targets of internal/gate and no other package's, so
+# a crash another package's target finds is not this gate's red, and the
+# search costs 60 s per gate target, not per module target. Every step that
+# can fail clears ok; the one line that turns a cleared ok into the gate's
+# id and a non-zero exit is all that stands between a failed search and
+# `gate=fuzz ok`. Run with a stub go, the only searches are the gate's, and
+# each failure point -- a target's search, the target listing, the corpus
+# root record -- must end the RUN with status 1 and
+# config_gen_gate_fuzz_failed on stderr; only an all-green run prints the
+# ok line.
+@test "Dockerfile.config-gen: the fuzz RUN searches only internal/gate's targets, and prints config_gen_gate_fuzz_failed and exits 1 when a search, the listing or the corpus root read fails (base#1850)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _body _rc
+  _body="$(_df_run_body test 'gate=fuzz ok')" || fail "not exactly one test-stage RUN prints gate=fuzz ok"
+  _stub_go
+  printf 'm.root=/x\n' > "${S}/corpus-root"
+  _run_df_body "${_body}"
+  assert_success
+  assert_output 'gate=fuzz ok'
+  assert_equal "${stderr}" ''
+  run grep -e '-fuzz ' "${S}/go.calls"
+  assert_success
+  assert_output --regexp '^test .*-run \^\$ -fuzz \^FuzzA\$ -fuzztime 60s \./internal/gate$'
+  for _rc in fuzz tlist; do
+    rm -f "${S}"/go.*.rc
+    printf '1\n' > "${S}/go.${_rc}.rc"
+    _run_df_body "${_body}"
+    assert_equal "${status}" 1
+    assert_output ''
+    assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+  done
+  rm -f "${S}"/go.*.rc "${S}/corpus-root"
+  _run_df_body "${_body}"
+  assert_equal "${status}" 1
+  assert_output ''
+  assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
+}
+
 # why: The race RUN and coverage.sh each ran go test over every package, so
 # the tests ran twice per build (base#1547). Now the race RUN's go test is
 # the only one in the test stage: it runs under -race and writes one
