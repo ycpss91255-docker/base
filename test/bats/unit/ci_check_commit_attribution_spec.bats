@@ -117,3 +117,17 @@ _run_pr() {
   assert_equal "${status}" 1
   assert_output --partial "::error::commit ${_sha}"
 }
+
+# why: The workflow also runs on push and on release tags, where there is no
+# pull request range to walk. A check that demanded BASE_SHA and HEAD_SHA on
+# every event would fail those runs, so this pins exit 0 and the no-range
+# notice for a push event with neither sha set (base#1989).
+@test "check_commit_attribution.sh: a push event has no range to check and passes with a notice (base#1989)" {
+  cd "${REPO}" || return 1
+  unset BASE_SHA HEAD_SHA
+  export EVENT_NAME=push
+
+  run bash "${CHECK}"
+  assert_equal "${status}" 0
+  assert_output --partial "no range"
+}
