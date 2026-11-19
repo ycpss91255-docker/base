@@ -6,12 +6,14 @@ package gate
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 )
 
 // Reason names why Check refused its input.
 type Reason int
 
-// ReasonEscape is a `\e` escape in a basic string (TOML 1.1 only).
+// ReasonEscape is a `\e` or `\x` escape in a basic string (TOML 1.1
+// only).
 const ReasonEscape Reason = 1
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -34,14 +36,24 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 	return &Refusal{File: label, Line: line, Col: col, Reason: reason, Text: text}
 }
 
+// escapePattern matches the TOML 1.1-only `\e` and `\x` escapes.
+var escapePattern = regexp.MustCompile(`\\[ex]`)
+
 // Check returns nil, or a *Refusal that names label and the offending
-// byte of src (base#1850): the backslash of the first `\e` escape.
+// byte of src (base#1850): the backslash of the first `\e` or `\x`
+// escape.
 func Check(label string, src []byte) error {
-	before, _, found := bytes.Cut(src, []byte(`\e`))
-	if !found {
+	loc := escapePattern.FindIndex(src)
+	if loc == nil {
 		return nil
 	}
-	return refusal(label, src, len(before), ReasonEscape, `escape sequence \e is not TOML 1.0`)
+	return escapeRefusal(label, src, loc[0])
+}
+
+// escapeRefusal is the refusal for the `\e` or `\x` escape whose
+// backslash is at offset off of src.
+func escapeRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonEscape, "escape sequence "+string(src[off:off+2])+" is not TOML 1.0")
 }
 
 // position returns the 1-based line and byte column of offset off in src.
