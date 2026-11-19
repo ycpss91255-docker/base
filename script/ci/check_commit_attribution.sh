@@ -25,6 +25,15 @@ esac
 : "${BASE_SHA:?BASE_SHA is not set}"
 : "${HEAD_SHA:?HEAD_SHA is not set}"
 
+# A sha that does not resolve would leave the walk empty and pass silently,
+# so both ends must name a commit before the walk, base#1989.
+for end in BASE_SHA HEAD_SHA; do
+  if ! git rev-parse --quiet --verify "${!end}^{commit}" >/dev/null; then
+    printf '::error::%s %s does not resolve to a commit\n' "${end}" "${!end}"
+    exit 1
+  fi
+done
+
 # The hook's marker list, built from parts so the repository's own
 # attribution guards do not fire on this file, base#1989.
 model="Cla""ude"
