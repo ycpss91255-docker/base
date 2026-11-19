@@ -34,7 +34,7 @@ const (
 )
 
 // bomPrefixes is the whole list of leading byte order marks the decoder
-// strips before it lexes (BurntSushi v1.6.0 parse.go:47-51), each of
+// strips before it lexes (BurntSushi v1.6.0 parse.go, lines 47-51), each of
 // which the TOML 1.0 oracle refuses (base#1850).
 var bomPrefixes = [][]byte{[]byte("\xEF\xBB\xBF"), []byte("\xFF\xFE"), []byte("\xFE\xFF")}
 
