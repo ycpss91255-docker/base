@@ -58,6 +58,11 @@ _hit() {
   printf '::error::commit %s: %s\n' "$1" "$2"
   hits=$((hits + 1))
 }
+# _is_noreply <text>: true when a line of <text> is the noreply address,
+# compared whole and without regard to case, base#1989.
+_is_noreply() {
+  grep -qixF "${addr}" <<<"$1"
+}
 
 while IFS= read -r sha; do
   count=$((count + 1))
@@ -72,21 +77,20 @@ while IFS= read -r sha; do
     _hit "${sha}" "co-author trailer naming the model in message"
   fi
   # Each address in the trailer lines git parses out of the message, so a
-  # prose line inside the trailer block is left out, compared whole and
-  # without regard to case, base#1989.
+  # prose line inside the trailer block is left out, base#1989.
   trailers="$(git log -1 --format='%(trailers:only)' "${sha}")"
   emails="$(grep -oE "${email_token}" <<<"${trailers}" || true)"
-  if grep -qixF "${addr}" <<<"${emails}"; then
+  if _is_noreply "${emails}"; then
     _hit "${sha}" "noreply address in message"
   fi
   # The address as the author identity is attribution even when the message
   # is clean, base#1989.
-  if grep -qixF "${addr}" <<<"$(git log -1 --format='%ae' "${sha}")"; then
+  if _is_noreply "$(git log -1 --format='%ae' "${sha}")"; then
     _hit "${sha}" "noreply address as author email"
   fi
   # The committer identity is read on its own: a commit can keep a human
   # author while the address commits it, base#1989.
-  if grep -qixF "${addr}" <<<"$(git log -1 --format='%ce' "${sha}")"; then
+  if _is_noreply "$(git log -1 --format='%ce' "${sha}")"; then
     _hit "${sha}" "noreply address as committer email"
   fi
 done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
