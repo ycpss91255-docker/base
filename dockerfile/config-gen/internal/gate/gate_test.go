@@ -253,7 +253,11 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 // a(1) ' '(2) =(3) ' '(4) {(5) b(6) ' '(7) =(8) ' '(9) 1(10) ,(11).
 // An array's trailing comma is TOML 1.0 (array-values allows it), and a
 // comma between two inline-table pairs is the separator, so both are nil:
-// refusing every `,` inside `{` fails c2.
+// refusing every `,` inside `{` fails c2. TOML 1.0 whitespace between the
+// comma and the `}` is any run of spaces and tabs (ws = *wschar, wschar =
+// %x20 / %x09); the tab rows hold the gate to both bytes, and to more than
+// one. tomllib refuses tab, sp-tab and tab-tab (rc=1) and BurntSushi
+// v1.6.0 accepts them (run 2026-11-19, base#1850).
 func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
 	for _, tc := range []struct {
 		name, src string
@@ -261,6 +265,9 @@ func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
 	}{
 		{"r1", "a = {b = 1, }\n", 1, 11},
 		{"r2", "a = {b = 1,}\n", 1, 11},
+		{"tab", "a = {b = 1,\t}\n", 1, 11},
+		{"sp-tab", "a = {b = 1, \t }\n", 1, 11},
+		{"tab-tab", "a = {b = 1,\t\t}\n", 1, 11},
 	} {
 		// Control: the decoder accepts the form, so the gate is the only
 		// thing between these bytes and a TOML 1.1 parse.
@@ -279,10 +286,23 @@ func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
 				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
 		}
 	}
-	for _, tc := range []struct{ name, src string }{
-		{"c1", "a = [1,\n2,]\n"},
-		{"c2", "a = {b = 1, c = 2}\n"},
+	// c5 puts a form feed, which is not TOML whitespace, between the comma
+	// and the `}`: the gate leaves it to the decoder, and both parsers
+	// refuse it as a control character (run 2026-11-19, base#1850).
+	for _, tc := range []struct {
+		name, src      string
+		decoderAccepts bool
+	}{
+		{"c1", "a = [1,\n2,]\n", true},
+		{"c2", "a = {b = 1, c = 2}\n", true},
+		{"c3", "a = {b = [1,\t]}\n", true},
+		{"c4", "a = {b = 1,\tc = 2}\n", true},
+		{"c5", "a = {b = 1,\f}\n", false},
 	} {
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); (err == nil) != tc.decoderAccepts {
+			t.Fatalf("%s: toml.Decode(%q) = %v, want accepted=%v", tc.name, tc.src, err, tc.decoderAccepts)
+		}
 		if err := Check("t.toml", []byte(tc.src)); err != nil {
 			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
 		}
