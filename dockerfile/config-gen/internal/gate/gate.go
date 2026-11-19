@@ -37,21 +37,28 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 }
 
 // tokenPattern reads src left to right as comments, multi-line literal
-// strings, literal strings and basic strings; any other byte is skipped.
-// A basic string stops at its closing quote, at a line end, or at a `\e`
-// or `\x` escape, which is then group 1. Any other escape, `\\` among
-// them, is read as one unit, so its second byte never starts an escape.
-var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)'''|'[^'\n]*'|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
+// strings, literal strings, multi-line basic strings and basic strings;
+// any other byte is skipped. A multi-line basic string may hold lone
+// quotes and line ends and stops at its first `"""` (plus up to two
+// quotes of content before it) or at a `\e` or `\x` escape, which is
+// then group 1. A basic string stops at its closing quote, at a line end,
+// or at a `\e` or `\x` escape, which is then group 2. Any other escape,
+// `\\` among them, is read as one unit, so its second byte never starts
+// an escape.
+var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)'''|'[^'\n]*'|"""(?:[^\\]|\\[^ex])*?(?:(\\[ex])|"""""|""""|""")|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
 
 // Check returns nil, or a *Refusal that names label and the offending
 // byte of src (base#1850): the backslash of the first `\e` or `\x`
-// escape in a basic string. The same bytes in a comment, a literal string
-// or a multi-line literal are TOML 1.0 and are accepted.
+// escape in a basic or multi-line basic string. The same bytes in a
+// comment, a literal string or a multi-line literal are TOML 1.0 and are
+// accepted.
 func Check(label string, src []byte) error {
 	// Every token is at least one byte, so src holds at most len(src).
 	for _, m := range tokenPattern.FindAllSubmatchIndex(src, len(src)) {
-		if m[2] != -1 {
-			return escapeRefusal(label, src, m[2])
+		for _, g := range []int{m[2], m[4]} {
+			if g != -1 {
+				return escapeRefusal(label, src, g)
+			}
 		}
 	}
 	return nil
