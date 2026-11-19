@@ -249,12 +249,17 @@ EOF
   chmod +x "${S}/bin/go"
 }
 
-# _run_df_body <body> -- <body> under the Dockerfile's SHELL (bash -euo
-# pipefail -c) in ${S}/mod with the stubs first on PATH.
+# _run_df_body <body> -- <body> under the Dockerfile's SHELL options (bash
+# -euo pipefail) in ${S}/mod with the stubs first on PATH. The body runs
+# from a script FILE, not a `bash -c` string: under kcov the xtrace PS4
+# expands ${BASH_SOURCE}, which is unset at the top level of a `bash -c`
+# string, so `set -u` stopped the body with "BASH_SOURCE: unbound
+# variable" before its first command (coverage shard 3/12, base#1850).
 _run_df_body() {
   mkdir -p "${S}/mod"
-  run --separate-stderr bash -c 'cd "$1" && PATH="$2:${PATH}" exec bash -euo pipefail -c "$3"' _ \
-    "${S}/mod" "${S}/bin" "${1}"
+  printf '%s\n' "${1}" > "${S}/df-body.sh"
+  run --separate-stderr bash -c 'cd "$1" && PATH="$2:${PATH}" exec bash -euo pipefail "$3"' _ \
+    "${S}/mod" "${S}/bin" "${S}/df-body.sh"
 }
 
 # why: The fuzz gate (base#1850) is "a 60-second fuzz run on the gate":
