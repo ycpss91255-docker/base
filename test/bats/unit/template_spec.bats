@@ -3262,9 +3262,10 @@ FIXTURE
   local _wf="/source/.github/workflows/build-worker.yaml"
   assert_spec_subject "${_wf}" \
       "the reusable build worker this spec pins"
-  # Two forwards expected: devel-test and runtime-test build steps.
+  # Three forwards expected: the devel, devel-test and runtime-test build
+  # steps (the devel step joined in base#1670).
   run grep -cE '^            TEST_TOOLS_IMAGE=\$\{\{ steps\.testtools\.outputs\.image \}\}$' "${_wf}"
-  assert_output "2"
+  assert_output "3"
 }
 
 # ════════════════════════════════════════════════════════════════════

@@ -84,7 +84,9 @@ being reasonable.
 - Field orchestrators / manifests (k8s, balena, ...); the deploy bundle targets
   a single-host `docker run` first.
 - Non-Linux hosts. The host tooling supports Linux only; macOS and Windows
-  hosts are not supported.
+  hosts are not supported. The GNU-specific
+  calls a port would start from are listed in
+  [host-portability.md](guide/host-portability.md).
 - Non-NVIDIA GPU support (tracked separately).
 - Downstream-specific business logic -- that stays in the downstream repo; base
   owns only the shared scaffolding.
