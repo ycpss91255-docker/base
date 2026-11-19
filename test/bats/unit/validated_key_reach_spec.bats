@@ -491,7 +491,6 @@ _reach_check_part() {
 # dropped by the emitter fails here; the alternative -- naming today's
 # fields -- is the assertion that would have passed all through
 # base#1094.
-#
 # Split into 4 parts (base#2003) so no one @test runs past the per-test
 # timeout under coverage. Each part checks the fields `_reach_part_of`
 # assigns it; a field with no probe is the probe-completeness test's job.
