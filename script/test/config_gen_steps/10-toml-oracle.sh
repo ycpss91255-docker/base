@@ -34,9 +34,9 @@
 # config_gen_toml_oracle_failed reason=image, and the toml-oracle
 # directory is removed, so the build has no verdicts to read. Inside the
 # container a file's verdict is the word the oracle program printed after
-# tomllib answered; an interpreter that exits non-zero, or is killed, on
-# any file fails the container, so it is reason=image too, never a
-# `refuse` row. An answer whose line count differs from the number of
+# tomllib answered; an oracle interpreter that exits non-zero, or is
+# killed, on any file fails the container, so it is reason=image too,
+# never a `refuse` row. An answer whose line count differs from the number of
 # files handed in is config_gen_toml_oracle_failed reason=count, with the
 # same removal. A row that is not three fields, whose second field is
 # neither `accept` nor `refuse`, or whose third is not 64 lower-case hex
@@ -47,8 +47,15 @@
 # it sits at the bridge's Python call depth, which tomllib's depth refusals
 # depend on. So for every file under internal/gate/testdata/forms the
 # container also runs the image's real `toml-bridge --tables` and answers
-# `calibration\t<rel>\taccept|refuse` after the verdict rows (exit 0 is
-# accept, 1 refuse, anything else fails the container). Those lines are
+# `calibration\t<rel>\taccept|refuse` after the verdict rows. Exit 0 is
+# accept. The bridge exits 1 when tomllib refuses the file, printing
+# `toml-bridge: <error>`, but an uncaught exception exits 1 too, so on a
+# file the oracle program refused, exit 1 is refuse only when the bridge's
+# stderr is byte for byte the `toml-bridge: <error>` line the oracle
+# program wrote for tomllib's refusal; any other exit 1 there, and any
+# other status, fails the container, reason=image (review round 2,
+# base#1851). On a file the oracle program accepted, exit 1 is refuse,
+# which disagrees with the verdict row and so fails below. Those lines are
 # not verdicts: they are left out of verdicts.tsv and of the row count.
 # Calibration lines that do not name every forms file exactly once, in
 # order, or a run with no forms file to calibrate with, are
@@ -84,7 +91,10 @@ readonly _TO_CORPUS_DIR='testdata/corpus'
 # What runs inside the bridge image: extract the tar, then one
 # `python3 -I` per file, with the bridge's call shape
 # (<module> -> main() -> tomllib.loads); the digest is taken after main()
-# returns, from the bytes main() handed tomllib.
+# returns, from the bytes main() handed tomllib. On a refusal it writes
+# the bridge's refusal line for that error, `toml-bridge: <error>` with
+# the bridge's stderr encoding, to the path in its argument, <file>.why,
+# for the calibration pass to compare.
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _TO_CONTAINER_SCRIPT='set -eu
 w="$(mktemp -d)"
@@ -98,21 +108,28 @@ def main():
     raw = sys.stdin.buffer.read()
     try:
         tomllib.loads(raw.decode())
-    except Exception:
+    except Exception as exc:
+        with open(sys.argv[1], \"w\", encoding=sys.stderr.encoding, errors=sys.stderr.errors) as why:
+            print(f\"toml-bridge: {exc}\", file=why)
         return \"refuse\", raw
     return \"accept\", raw
 v, raw = main()
 print(v + chr(9) + hashlib.sha256(raw).hexdigest())
-" < "$f")" || { printf "toml-oracle: python3 failed on %s\n" "$rel" >&2; exit 1; }
+" "$f.why" < "$f")" || { printf "toml-oracle: python3 failed on %s\n" "$rel" >&2; exit 1; }
   printf "%s\t%s\n" "$rel" "$v"
 done
 find . -type f -path "./internal/gate/testdata/forms/*" -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
   rel="${f#./}"
   rc=0
-  python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2>&1 || rc=$?
+  python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2> "$f.err" || rc=$?
   case "$rc" in
     0) v=accept ;;
-    1) v=refuse ;;
+    1)
+      if [ -e "$f.why" ] && ! cmp -s "$f.why" "$f.err"; then
+        printf "toml-oracle: toml-bridge exited 1 on %s without the refusal tomllib gave the oracle program\n" "$rel" >&2
+        exit 1
+      fi
+      v=refuse ;;
     *) printf "toml-oracle: toml-bridge exited %s on %s\n" "$rc" "$rel" >&2; exit 1 ;;
   esac
   printf "calibration\t%s\t%s\n" "$rel" "$v"
