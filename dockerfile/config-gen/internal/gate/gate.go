@@ -116,7 +116,8 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // token that is a time without seconds, or the first byte of a bare
 // token after `=` or an array's opening `[` that is a date-bearing value
 // with year 0000, or the sign of a datetime's offset whose hour is
-// above 23 or whose minute is above 59; or the first byte of a leading byte order mark. The same bytes in a comment, a literal string or a
+// above 23 or whose minute is above 59; or the first byte of a leading
+// byte order mark. The same bytes in a comment, a literal string or a
 // multi-line literal are TOML 1.0 and are accepted. Where the structural
 // reading (tables) stops, the byte it stopped on is refused with
 // ReasonSyntax unless one of those bytes comes at or before it; nothing
@@ -241,10 +242,10 @@ func (st *scan) valueNext() bool {
 // innermost open container is `{`, or for the first comma there that
 // follows a pair and is followed, after optional spaces or tabs, by the
 // `}` that closes an inline table, or for the first bare token there
-// that is a time without seconds, or for the first bare value token there that is a
-// date-bearing value with year 0000, or for the offset sign of the
-// first bare token there whose offset hour is above 23 or offset minute
-// is above 59.
+// that is a time without seconds, or for the first bare value token
+// there that is a date-bearing value with year 0000, or for the offset
+// sign of the first bare token there whose offset hour is above 23 or
+// offset minute is above 59.
 func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 	for i := from; i < to; i++ {
 		switch c := src[i]; c {

@@ -177,9 +177,9 @@ func (t *tables) pair(n *node, step func(n *node, part string, at int) (*node, e
 
 // headerStep passes a [parts] or [[parts]] header that starts at offset
 // at through part, an ancestor of its last part, below n, and returns
-// part's node. A [[parts]] header refuses an ancestor that is a value: a
-// scalar, an inline table or an array; a [parts] header refuses the same
-// ancestors.
+// part's node. Either header refuses an ancestor that is a value: a
+// scalar with ReasonDuplicate, and an inline table or an array with
+// ReasonDuplicate under [[parts]] and ReasonRedefine under [parts].
 func (t *tables) headerStep(n *node, part string, aot bool, at int) (*node, error) {
 	n = n.child(part)
 	switch {
