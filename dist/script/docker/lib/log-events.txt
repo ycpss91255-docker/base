@@ -533,6 +533,10 @@ go_mod_oracle_mismatch
 go_mod_oracle_pin_missing
 go_mod_pin_target_not_require
 
+# script/test/config_gen_steps/10-toml-oracle.sh: the pinned toml-bridge
+# container could not answer for the gate's TOML files (base#1851).
+config_gen_toml_oracle_failed
+
 # script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
 # the file left as it was (base#1463).
 pin_set_refused
