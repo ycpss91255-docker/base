@@ -514,6 +514,17 @@ _reach_part_from_title() {
   done
 }
 
+# why: base#2003 -- a part @test only runs if it is registered. Bats
+# refuses two tests with one title in a file, and every part takes its
+# part from an exact title, so 4 registered exact titles are parts 1..4
+# once each. Counted through bats' own --count and --filter, so a
+# deleted part makes the count 3.
+@test "the four reach parts are registered once each (base#2003)" {
+  run bats --count --filter "^${_REACH_TITLE}, part [1-4] of 4 \\(base#1094\\)\$" "${BATS_TEST_FILENAME}"
+  assert_success
+  assert_output "4"
+}
+
 # why: base#1094 -- an exemption is a claim about where the value goes,
 # and an unexplained one is the hole this gate exists to close. Mirrors
 # schema.sh's SCHEMA_FREEFORM reason rule.
