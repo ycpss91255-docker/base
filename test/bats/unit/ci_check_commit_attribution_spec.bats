@@ -285,6 +285,20 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: attribution marker in message"
 }
 
+# why: The hook's marker list makes the bracket before the model name
+# optional, so the plain-text footer with no link is attribution too. A
+# check that required the bracket would pass it, so this pins exit 1 for
+# the footer written without brackets (base#1989).
+@test "check_commit_attribution.sh: a generated-with footer without brackets fails and names the sha (base#1989)" {
+  _commit "$(printf 'feat: x\n\n%s with %s Code' "Generated" "$(_model)")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+}
+
 # why: The tooling has written the co-author key in lower case. A check that
 # matched the marker list case-sensitively would pass a lower-case key and
 # model name with no noreply address, so this pins exit 1 for it
