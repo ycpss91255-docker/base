@@ -27,7 +27,9 @@
 # reason=image, and the toml-oracle directory is removed, so the build has
 # no verdicts to read. An answer whose line count differs from the number
 # of files handed in is config_gen_toml_oracle_failed reason=count, with
-# the same removal.
+# the same removal. A row whose second field is neither `accept` nor
+# `refuse` is config_gen_toml_oracle_failed reason=token, with the
+# directory removed the same way.
 #
 # Exit: 0 verdicts written; 1 otherwise.
 #
@@ -116,6 +118,15 @@ main() {
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=count \
       "display=config_gen_toml_oracle_failed: the toml-bridge container answered ${rows} lines for ${#files[@]} files"
+    return 1
+  fi
+
+  local bad
+  bad="$(awk -F'\t' '$2 != "accept" && $2 != "refuse" { print NR; exit }' "${out}/verdicts.tsv")"
+  if [[ -n "${bad}" ]]; then
+    rm -rf -- "${out}"
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=token \
+      "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer has a verdict that is neither accept nor refuse"
     return 1
   fi
 }
