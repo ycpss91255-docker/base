@@ -1094,6 +1094,26 @@ STUB
   assert_output --partial "::error::commit ${_bad}"
 }
 
+# why: A base that names no commit is a mistake in the mirror's own
+# input, so the leg refuses it there and names it. A leg that dropped the
+# guard handed an empty BASE_SHA to the check, which failed on its own
+# variable, and the reader never learned which base was wrong. So a base
+# that does not resolve must fail, name the base, and stop before the check
+# runs (no BASE_SHA in the output).
+@test "pre-PR mirror: --commit-attribution with a base that does not resolve fails naming the base (base#1989)" {
+  _require_mirror
+  local _r="${SCRATCH}/repo"
+  _make_mirror_repo >/dev/null
+  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  run env PRE_PR_MIRROR_BASE=no-such-base "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "pre_pr_mirror: no-such-base does not resolve to a commit"
+  refute_output --partial "BASE_SHA"
+}
+
 # ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
 #
 # The mirror attests the roster through `just test`, so the no-flag
