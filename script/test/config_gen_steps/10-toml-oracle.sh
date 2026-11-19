@@ -19,8 +19,10 @@
 # internal/gate/testdata/toml-test, and every testdata/corpus/s*/*.toml,
 # the shared corpus internal/testcorpus.Glob reads (base#1851). It goes
 # to one `docker run`, --network none, as a tar on stdin; the container
-# answers one `<rel>\taccept|refuse` line per file, from `tomllib.loads`
-# on the file's bytes. Those answers are written to
+# answers one `<rel>\taccept|refuse\t<sha256>` line per file, from
+# `tomllib.loads` on the file's bytes, with the SHA-256 of the bytes it
+# parsed, so the differential test can hold each verdict to the file it
+# reads (review round 2, base#1851). Those answers are written to
 # $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
 #
 # Refusal: an input path with a character outside [A-Za-z0-9._/-] is
@@ -36,9 +38,10 @@
 # any file fails the container, so it is reason=image too, never a
 # `refuse` row. An answer whose line count differs from the number of
 # files handed in is config_gen_toml_oracle_failed reason=count, with the
-# same removal. A row whose second field is neither `accept` nor `refuse`
-# is config_gen_toml_oracle_failed reason=token, with the directory
-# removed the same way.
+# same removal. A row that is not three fields, whose second field is
+# neither `accept` nor `refuse`, or whose third is not 64 lower-case hex
+# digits, is config_gen_toml_oracle_failed reason=token, with the
+# directory removed the same way.
 #
 # Calibration: the oracle program stands in for the real bridge only while
 # it sits at the bridge's Python call depth, which tomllib's depth refusals
@@ -80,7 +83,8 @@ readonly _TO_CORPUS_DIR='testdata/corpus'
 
 # What runs inside the bridge image: extract the tar, then one
 # `python3 -I` per file, with the bridge's call shape
-# (<module> -> main() -> tomllib.loads).
+# (<module> -> main() -> tomllib.loads); the digest is taken after main()
+# returns, from the bytes main() handed tomllib.
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _TO_CONTAINER_SCRIPT='set -eu
 w="$(mktemp -d)"
@@ -89,15 +93,16 @@ tar -xf -
 find . -type f -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
   rel="${f#./}"
   v="$(python3 -I -c "
-import sys, tomllib
+import hashlib, sys, tomllib
 def main():
     raw = sys.stdin.buffer.read()
     try:
         tomllib.loads(raw.decode())
     except Exception:
-        return \"refuse\"
-    return \"accept\"
-print(main())
+        return \"refuse\", raw
+    return \"accept\", raw
+v, raw = main()
+print(v + chr(9) + hashlib.sha256(raw).hexdigest())
 " < "$f")" || { printf "toml-oracle: python3 failed on %s\n" "$rel" >&2; exit 1; }
   printf "%s\t%s\n" "$rel" "$v"
 done
@@ -172,11 +177,12 @@ main() {
   fi
 
   local bad
-  bad="$(awk -F'\t' '$2 != "accept" && $2 != "refuse" { print NR; exit }' "${out}/verdicts.tsv")"
+  bad="$(awk -F'\t' 'NF != 3 || ($2 != "accept" && $2 != "refuse") \
+    || length($3) != 64 || $3 ~ /[^0-9a-f]/ { print NR; exit }' "${out}/verdicts.tsv")"
   if [[ -n "${bad}" ]]; then
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=token \
-      "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer has a verdict that is neither accept nor refuse"
+      "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer is not <rel>, accept or refuse, and a SHA-256"
     return 1
   fi
 

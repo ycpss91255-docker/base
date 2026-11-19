@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"math"
@@ -446,7 +448,11 @@ func TestDifferential(t *testing.T) {
 	}
 	seen := 0
 	for _, r := range rows {
-		rel, live, _ := strings.Cut(r, "\t")
+		f := strings.Split(r, "\t")
+		rel, live := f[0], ""
+		if len(f) > 1 {
+			live = f[1]
+		}
 		if want, pinned := designVerdicts[rel]; pinned {
 			seen++
 			if live != want {
@@ -476,7 +482,11 @@ func oracleDifferential(path string, files map[string]string) ([]string, []strin
 // rows on files (rel -> path to read) and returns one line per problem.
 // The rows must first name exactly the files (checkOracleRows), each
 // once; otherwise that is the only problem, before any verdict is
-// compared (review round 1, base#1851). Then each row's verdict is accept
+// compared (review round 1, base#1851). Each row must then be
+// `<rel>\t<verdict>\t<sha256>`, and the digest, of the bytes tomllib
+// parsed, must be that of the file as read here: a row about other bytes
+// is named and its verdict not compared (review round 2, base#1851).
+// Then each row's verdict is accept
 // when Check returns nil and toml.Decode then succeeds, refuse otherwise,
 // with one exception: when Check returns nil and toml.Decode refuses only
 // integers outside int64 (int64Only), which tomllib accepts, the verdict
@@ -502,14 +512,19 @@ func differential(rows []string, files map[string]string) []string {
 		return problems
 	}
 	for _, r := range rows {
-		rel, live, ok := strings.Cut(r, "\t")
-		if !ok {
-			problems = append(problems, fmt.Sprintf("oracle verdict row %q has no tab", r))
+		f := strings.Split(r, "\t")
+		if len(f) != 3 {
+			problems = append(problems, fmt.Sprintf("oracle verdict row %q is not <rel>, <verdict> and <sha256>", r))
 			continue
 		}
+		rel, live, digest := f[0], f[1], f[2]
 		src, err := os.ReadFile(files[rel])
 		if err != nil {
 			problems = append(problems, err.Error())
+			continue
+		}
+		if sum := sha256.Sum256(src); hex.EncodeToString(sum[:]) != digest {
+			problems = append(problems, fmt.Sprintf("%s: tomllib answered on bytes with sha256 %s, the file has %s", rel, digest, hex.EncodeToString(sum[:])))
 			continue
 		}
 		got, viaInt64 := "refuse", false
