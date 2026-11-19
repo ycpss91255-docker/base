@@ -1,6 +1,8 @@
-// Package gate refuses the TOML forms that BurntSushi accepts but the
-// TOML 1.0 oracle (tomllib) refuses, so that gate plus BurntSushi gives
-// the oracle's verdict (base#1850).
+// Package gate refuses six TOML 1.1-only forms that BurntSushi v1.6.0
+// accepts and the TOML 1.0 oracle (tomllib) refuses (base#1850): a `\e`
+// escape, a `\x` escape, a line ending inside an inline table, a trailing
+// comma in an inline table, a time without seconds, and a leading byte
+// order mark.
 package gate
 
 import (
@@ -99,9 +101,20 @@ func Check(label string, src []byte) error {
 				return escapeRefusal(label, src, g)
 			}
 		}
-		prev = m[1]
+		prev = lineEndStart(src, m[1])
 	}
 	return nil
+}
+
+// lineEndStart returns end, or end-1 when the token that ends at end
+// stops at the LF of a CRLF, so that the CR is read by structural as the
+// first byte of that line ending (base#1850). A token is never empty, so
+// end-1 is a byte of it.
+func lineEndStart(src []byte, end int) int {
+	if end < len(src) && src[end] == '\n' && src[end-1] == '\r' {
+		return end - 1
+	}
+	return end
 }
 
 // structural reads src[from:to], bytes outside any token, keeping the
