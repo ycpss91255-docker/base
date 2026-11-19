@@ -107,6 +107,34 @@ _run_pr() {
   assert_output --partial "no AI attribution in 1 commit(s)"
 }
 
+# why: The trailer rule is a trailer that uses the noreply address, and an
+# address is the whole email, not text that merely contains it. A check
+# that searched the message for the address as a substring would fail a
+# `Reviewed-by:` trailer carrying another address made by appending
+# `.example.org` to it, so this pins exit 0 and no error line (base#1989).
+@test "check_commit_attribution.sh: a trailer whose address only contains the noreply address passes (base#1989)" {
+  _commit "$(printf 'feat: x\n\nReviewed-by: Bot <%s.example.org>' "$(_addr)")"
+
+  _run_pr
+  assert_equal "${status}" 0
+  refute_output --partial "::error::"
+  assert_output --partial "no AI attribution in 1 commit(s)"
+}
+
+# why: The address is attribution when a trailer uses it, not when prose
+# names it. A check that searched the whole message would fail a commit
+# that only describes the address in a paragraph with no trailer, so a
+# clean subject with such a body must exit 0 and print no error line
+# (base#1989).
+@test "check_commit_attribution.sh: prose that names the noreply address outside a trailer passes (base#1989)" {
+  _commit "$(printf 'feat: x\n\nThe check rejects %s when a trailer uses it.' "$(_addr)")"
+
+  _run_pr
+  assert_equal "${status}" 0
+  refute_output --partial "::error::"
+  assert_output --partial "no AI attribution in 1 commit(s)"
+}
+
 # why: Git accepts a space before a trailer's colon and prints the trailer in
 # canonical `key: value` form. A check that ran the marker list over the raw
 # body alone would pass `<key> : <model> <other address>`, which names the
