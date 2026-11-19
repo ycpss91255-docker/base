@@ -59,3 +59,17 @@ _run_pr() {
   assert_equal "${status}" 1
   assert_output --partial "::error::commit ${_sha}"
 }
+
+# why: The address is attribution under any trailer key, not only the
+# co-author one. A check that ran the marker list alone would pass a
+# `Reviewed-by:` trailer carrying it, so this pins exit 1 and the sha for a
+# trailer the marker list does not name (base#1989).
+@test "check_commit_attribution.sh: a non-co-author trailer with the noreply address fails and names the sha (base#1989)" {
+  _commit "$(printf 'feat: x\n\nReviewed-by: Bot <%s>' "$(_addr)")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}"
+}
