@@ -9,8 +9,12 @@ package gate
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
+	"strings"
 )
 
 // Reason names why Check refused its input.
@@ -98,6 +102,16 @@ func Check(label string, src []byte) error {
 		}
 	}
 	var st scan
+	// A nil *Refusal must come back as a nil error, not a typed nil.
+	if r := read(label, src, &st); r != nil {
+		return r
+	}
+	return nil
+}
+
+// read walks src as tokens and the bytes between them, keeping st, and
+// returns the first refusal Check reports after the byte order mark.
+func read(label string, src []byte, st *scan) *Refusal {
 	prev := 0
 	// Every token is at least one byte, so src holds at most len(src)
 	// tokens. An empty match at len(src) with neither escape group set
@@ -105,7 +119,7 @@ func Check(label string, src []byte) error {
 	end := len(src)
 	tokens := append(tokenPattern.FindAllSubmatchIndex(src, len(src)), []int{end, end, -1, end, -1, end})
 	for _, m := range tokens {
-		if r := structural(label, src, prev, m[0], &st); r != nil {
+		if r := structural(label, src, prev, m[0], st); r != nil {
 			return r
 		}
 		// A string or comment token is not `=` or `[`, so the bare token
@@ -142,6 +156,9 @@ func lineEndStart(src []byte, end int) int {
 type scan struct {
 	open []byte
 	last byte
+	// value, when set, is called with the offsets of each bare token
+	// read as a value, after the token passed every rule.
+	value func(start, end int)
 }
 
 // valueNext reports whether the next bare token is a value: it follows
@@ -213,12 +230,96 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 			if at, ok := offsetOutOfRange(tok); ok {
 				return offsetRangeRefusal(label, src, i+at)
 			}
+			if st.value != nil && st.valueNext() {
+				st.value(i, i+len(tok))
+			}
 			st.last = 'v'
 			i += len(tok) - 1
 		}
 	}
 	return nil
 }
+
+// Normalize returns a copy of src, which Check accepted, in which every
+// value-position float literal past float64 max is replaced by `inf`,
+// `+inf` or `-inf` (its sign kept) padded with spaces to the literal's
+// length; tomllib loads such a literal as an infinity, BurntSushi refuses
+// it (base#1851). Every other byte keeps its value and offset, so a
+// decoder's line and column still index src.
+func Normalize(src []byte) []byte {
+	out := bytes.Clone(src)
+	st := scan{value: func(start, end int) {
+		if !isDecimalFloat(src[start:end]) {
+			return
+		}
+		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
+		if f, err := strconv.ParseFloat(tok, 64); errors.Is(err, strconv.ErrRange) && math.IsInf(f, 0) {
+			inf := "inf"
+			if tok[0] == '+' || tok[0] == '-' {
+				inf = tok[:1] + inf
+			}
+			// The literal's bytes become spaces, then inf over its start.
+			pad := out[start:end]
+			for k := range pad {
+				pad[k] = ' '
+			}
+			copy(pad, inf)
+		}
+	}}
+	_ = read("", src, &st)
+	return out
+}
+
+// isDecimalFloat reports whether tok, as written, is a TOML 1.0 decimal
+// float (base#1851):
+//
+//	float = dec-int ( exp / frac [ exp ] )
+//	dec-int = [ "-" / "+" ] ( DIGIT / digit1-9 1*( DIGIT / "_" DIGIT ) )
+//	frac = "." zero-prefixable-int
+//	exp = ( "e" / "E" ) [ "-" / "+" ] zero-prefixable-int
+//	zero-prefixable-int = DIGIT *( DIGIT / "_" DIGIT )
+func isDecimalFloat(tok []byte) bool {
+	i := 0
+	if i < len(tok) && (tok[i] == '+' || tok[i] == '-') {
+		i++
+	}
+	start := i
+	i = digitRun(tok, i)
+	// dec-int is one digit, or a run whose first digit is not 0.
+	ok := i > start && (tok[start] != '0' || i == start+1)
+	more := false
+	if i < len(tok) && tok[i] == '.' {
+		j := digitRun(tok, i+1)
+		ok = ok && j > i+1
+		i, more = j, true
+	}
+	if i < len(tok) && (tok[i] == 'e' || tok[i] == 'E') {
+		i++
+		if i < len(tok) && (tok[i] == '+' || tok[i] == '-') {
+			i++
+		}
+		j := digitRun(tok, i)
+		ok = ok && j > i
+		i, more = j, true
+	}
+	return ok && more && i == len(tok)
+}
+
+// digitRun returns the offset just past the zero-prefixable-int (a digit,
+// then digits each optionally after one underscore) that starts at offset
+// i of tok, or i itself when no digit is there.
+func digitRun(tok []byte, i int) int {
+	for ; i < len(tok) && isDigit(tok[i]); i++ {
+		// An underscore goes on only with a digit after it.
+		if i+2 < len(tok) && tok[i+1] == '_' && isDigit(tok[i+2]) {
+			i++
+		}
+	}
+	return i
+}
+
+// isDigit reports whether b is an ASCII digit.
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
 // escapeRefusal is the refusal for the `\e` or `\x` escape whose
 // backslash is at offset off of src.
