@@ -1617,3 +1617,20 @@ _run_build_stage() {
   run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
   assert_success
 }
+
+# why: The no-cache retry of the runtime build (base#1702) rebuilds the
+# same `--target runtime` with the same Dockerfile, so it needs the same
+# TEST_TOOLS_IMAGE build-arg as the first attempt. Without it, a stale
+# cache import moves the failure from the import to a blank base name
+# instead of recovering. Scoped to the retry step: the first attempt
+# already carries the line (base#1680).
+@test "build-worker.yaml: the runtime no-cache retry step passes TEST_TOOLS_IMAGE from the testtools step output (base#1680)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Retry runtime stage without the cache import") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Retry runtime stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}
