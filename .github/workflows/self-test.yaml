@@ -2136,6 +2136,25 @@ jobs:
           CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
         run: just test go-redpath ${{ matrix.shard }}/5
 
+  commit-attribution:
+    # Fails a pull request or merge group whose own commits carry AI
+    # attribution (base#1989). Only the range is walked: commits already on
+    # main are out of scope. The full history is fetched so the base commit
+    # exists to walk from. No `if:`: a push or tag run passes with a notice.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the range for AI attribution
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: bash ./script/ci/check_commit_attribution.sh
+
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
     # joins this `needs:` list so branch protection never needs to
@@ -2147,7 +2166,7 @@ jobs:
     # classify key its `if:` reads is exactly `false`. The verify step
     # finds that key through an explicit job-to-key map, never a rewrite
     # of the job name. A job with no key in the map (actionlint /
-    # classify / test-tools-image-amd64 / test-tools-image-arm64 /
+    # classify / test-tools-image-amd64 / test-tools-image-arm64 / commit-attribution /
     # doc-counts / lint-static / mutation-roster / compute-shards) carries
     # no `if:`, so its SKIPPED is a workflow bug
     # and fails, as does a skip whose key is `true`, empty or missing, and
@@ -2187,7 +2206,7 @@ jobs:
     # failure cascaded into two skips and the required check went green
     # with the whole unit suite and the coverage floor never run. Those
     # two skips fail too, because classify selected both jobs.
-    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2295,7 +2314,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30

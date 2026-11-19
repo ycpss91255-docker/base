@@ -1195,6 +1195,18 @@ fail on the next formatting change for a reason none of them is about.
 | `_check_test_md_drift: counts a shipped smoke spec as spec files (#848)` | - |
 | `_check_test_md_drift: FAILS when a row is deleted from the generated region (#859)` | The rot this closes: the heading count was regenerated -- so the gate said in sync -- while the per-test table next to it stayed short, 36 rows against 43 tests. The region is generated wholesale now, so a hand-edited row IS drift, and the gate names it. |
 
+### test/bats/unit/ci_check_commit_attribution_spec.bats (7)
+
+| Test | Description |
+|------|-------------|
+| `check_commit_attribution.sh: a co-author trailer naming the model fails and names the sha (base#1989)` | The trailer the agent tooling adds by default is the case the check exists for. A check that always passed would pass every clean-commit spec, so this one pins exit 1 and the offending sha in the output (base#1989). |
+| `check_commit_attribution.sh: a non-co-author trailer with the noreply address fails and names the sha (base#1989)` | The address is attribution under any trailer key, not only the co-author one. A check that ran the marker list alone would pass a `Reviewed-by:` trailer carrying it, so this pins exit 1 and the sha for a trailer the marker list does not name (base#1989). |
+| `check_commit_attribution.sh: a co-author trailer with a space before the colon naming the model fails and names the sha (base#1989)` | Git accepts a space before a trailer's colon and prints the trailer in canonical `key: value` form. A check that ran the marker list over the raw body alone would pass `<key> : <model> <other address>`, which names the model and carries no noreply address, so this pins exit 1 and the sha (base#1989). |
+| `check_commit_attribution.sh: an author email equal to the noreply address fails and names the sha (base#1989)` | The address as the author identity is attribution even when the message is clean. A check that read the message alone would pass a commit authored as the noreply address, so this pins exit 1 and the sha for a clean message with that author email (base#1989). |
+| `check_commit_attribution.sh: a committer email equal to the noreply address fails and names the sha (base#1989)` | The address as the committer identity is attribution too, and a commit can carry it there with a clean message and a human author. A check that read the author email for both identities would pass such a commit, so this pins exit 1 and the sha when only the committer email is the noreply address (base#1989). |
+| `check_commit_attribution.sh: a push event has no range to check and passes with a notice (base#1989)` | The workflow also runs on push and on release tags, where there is no pull request range to walk. A check that demanded BASE_SHA and HEAD_SHA on every event would fail those runs, so this pins exit 0 and the no-range notice for a push event with neither sha set (base#1989). |
+| `check_commit_attribution.sh: a pull_request event whose base sha does not resolve fails (base#1989)` | A pull request run whose base sha does not name a commit in the clone has no range git can walk. A check that walked `git rev-list` without verifying the shas would see an empty list and pass, so this pins a non-zero exit for a pull_request event whose BASE_SHA does not resolve (base#1989). |
+
 ### test/bats/unit/ci_install_just_spec.bats (2)
 
 A CI job failed on one upstream 5xx (a GitHub API 504 inside setup-just)
@@ -6697,7 +6709,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (159)
+### test/bats/unit/self_test_yaml_spec.bats (160)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7090,6 +7102,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the fork-PR branch is a hard failure, not an advisory note (#766)` | - |
 | `self-test.yaml: the self-hosted guard lint has a lint-static CI join (#766)` | - |
 | `self-test.yaml: classify publishes merge_group_same_repo from a merge_group-only trust step (base#1587)` | A merge_group payload has no pull_request object, so only the API can say whether a queued group is same-repository; classify must ask it on merge_group and publish the answer, failing closed (base#1587) |
+| `self-test.yaml: a commit-attribution job runs check_commit_attribution.sh over the PR or merge_group range and gates ci-rollup (base#1989)` | check_commit_attribution.sh only guards a pull request if a job runs it over that pull request's range and the required check waits on that job. A script no job calls, a job that reads the wrong range, or a shallow clone with no base commit to walk from would all leave an attributed commit free to merge, so this pins the job's range env, its full-history checkout and its place in ci-rollup's needs (base#1989). |
 | `self-test.yaml: worker-selftest passes classify's merge_group_same_repo to build-worker (base#1587)` | build-worker's merge_group_same_repo input defaults to 'false', so a worker-selftest that passes nothing would skip `build` on every queue run and fail the gate even for a proven same-repo group (base#1587) |
 | `self-test.yaml: ci-rollup IS_FORK_PR applies the fork rule to a merge group not proven same-repository (base#1587)` | On merge_group the build guard skips `build` unless classify proved the group same-repository, and SKIPPED is pass-equivalent in the rollup; the rollup must apply the fork rule there too, or an unproven queue group would go green on a build that never ran (base#1587) |
 | `self-test.yaml: ci-rollup's fork red names a merge group not proven same-repository (base#1587)` | IS_FORK_PR is now also true for a merge group not proven same-repository, so the rollup's red must say that case too, or a queue run reads as a fork PR that does not exist (base#1587) |
