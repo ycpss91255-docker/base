@@ -114,10 +114,10 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // whose innermost open `[` / `{` container is an inline table, the comma
 // of an inline table's trailing comma, or the first byte of a bare
 // token that is a time without seconds, or the first byte of a bare
-// token after `=` or an array's opening `[` that is a date-bearing value
-// with year 0000, or the sign of a datetime's offset whose hour is
-// above 23 or whose minute is above 59; or the first byte of a leading
-// byte order mark. The same bytes in a comment, a literal string or a
+// value (a value position of the table pass's reading) that is a
+// date-bearing value with year 0000, or the sign of a datetime's offset
+// whose hour is above 23 or whose minute is above 59; or the first byte
+// of a leading byte order mark. The same bytes in a comment, a literal string or a
 // multi-line literal are TOML 1.0 and are accepted. Where the structural
 // reading (tables) stops, the byte it stopped on is refused with
 // ReasonSyntax unless one of those bytes comes at or before it; nothing
@@ -141,7 +141,7 @@ func Check(label string, src []byte) error {
 			stop = refusal(label, src, min(t.i, len(src)-1), ReasonSyntax, syntaxText)
 		}
 	}
-	var st scan
+	st := scan{bare: t.bare, arrays: t.arrays}
 	// A nil *Refusal must come back as a nil error, not a typed nil.
 	if r := read(label, src, &st); r != nil && (stop == nil || !before(stop, r)) {
 		return r
@@ -216,25 +216,15 @@ func lineEndStart(src []byte, end int) int {
 // the stack of open containers (`[` an array, `h` a table header's
 // bracket, `{` an inline table) and last, the last byte outside a
 // string or comment that is not a space, tab or line ending (`"` after
-// a string or comment, `v` after a bare token, 0 at the start).
+// a string or comment, `v` after a bare token, 0 at the start). bare and
+// arrays are the table pass's value positions (tables.bare,
+// tables.arrays): a bare token is a value only when it starts at a key of
+// bare, and a `[` opens an array only when its offset is in arrays.
 type scan struct {
-	open []byte
-	last byte
-	// value, when set, is called with the offsets of each bare token
-	// read as a value, after the token passed every rule.
-	value func(start, end int)
-}
-
-// valueNext reports whether the next bare token is a value: it follows
-// `=`, or it follows the `[` that opens an array.
-func (st *scan) valueNext() bool {
-	switch st.last {
-	case '=':
-		return true
-	case '[':
-		return bytes.HasSuffix(st.open, []byte("["))
-	}
-	return false
+	open   []byte
+	last   byte
+	bare   map[int]int
+	arrays map[int]bool
 }
 
 // structural reads src[from:to], bytes outside any token, keeping st,
@@ -252,7 +242,7 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 		case '[':
 			// A `[` that starts a value opens an array; any other opens
 			// a table header.
-			if st.valueNext() {
+			if st.arrays[i] {
 				st.open = append(st.open, '[')
 			} else {
 				st.open = append(st.open, 'h')
@@ -289,7 +279,7 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 				st.last = c
 				continue
 			}
-			if st.valueNext() && yearZero(tok) {
+			if _, value := st.bare[i]; value && yearZero(tok) {
 				return dateRangeRefusal(label, src, i)
 			}
 			if dateRule(tok) {
@@ -297,9 +287,6 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 			}
 			if at, ok := offsetOutOfRange(tok); ok {
 				return offsetRangeRefusal(label, src, i+at)
-			}
-			if st.value != nil && st.valueNext() {
-				st.value(i, i+len(tok))
 			}
 			st.last = 'v'
 			i += len(tok) - 1
@@ -309,16 +296,19 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 }
 
 // Normalize returns a copy of src, which Check accepted, in which every
-// value-position float literal past float64 max is replaced by `inf`,
+// value-position float literal (a bare value the table pass read, in any
+// array or inline-table position) past float64 max is replaced by `inf`,
 // `+inf` or `-inf` (its sign kept) padded with spaces to the literal's
 // length; tomllib loads such a literal as an infinity, BurntSushi refuses
 // it (base#1851). Every other byte keeps its value and offset, so a
 // decoder's line and column still index src.
 func Normalize(src []byte) []byte {
 	out := bytes.Clone(src)
-	st := scan{value: func(start, end int) {
+	t := newTables("", src)
+	_ = t.document()
+	for start, end := range t.bare {
 		if !isDecimalFloat(src[start:end]) {
-			return
+			continue
 		}
 		tok := strings.ReplaceAll(string(src[start:end]), "_", "")
 		if f, err := strconv.ParseFloat(tok, 64); errors.Is(err, strconv.ErrRange) && math.IsInf(f, 0) {
@@ -333,8 +323,7 @@ func Normalize(src []byte) []byte {
 			}
 			copy(pad, inf)
 		}
-	}}
-	_ = read("", src, &st)
+	}
 	return out
 }
 

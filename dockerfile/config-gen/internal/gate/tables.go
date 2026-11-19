@@ -78,6 +78,14 @@ type tables struct {
 	// pending holds the dotted-key prefixes the current section made;
 	// the next header marks them explicit.
 	pending []*node
+	// bare maps the first byte of each bare value the pass read (a
+	// number, boolean, date or time) to the offset just past it, and
+	// arrays holds the offset of each array value's `[`. These are the
+	// value positions of the grammar's own reading, which Check and
+	// Normalize take instead of guessing from the byte before a token
+	// (review round 1, base#1851).
+	bare   map[int]int
+	arrays map[int]bool
 }
 
 // errStop ends the pass at t.i, a byte where the TOML 1.0 grammar allows
@@ -87,7 +95,7 @@ var errStop = errors.New("gate: table pass stopped")
 // newTables returns a pass over src that starts at its first byte and
 // names label in its refusals.
 func newTables(label string, src []byte) *tables {
-	return &tables{src: src, label: label, root: newNode(nodeTable)}
+	return &tables{src: src, label: label, root: newNode(nodeTable), bare: map[int]int{}, arrays: map[int]bool{}}
 }
 
 // document reads every statement of src: a [header], a [[header]] or a
@@ -263,6 +271,7 @@ func (t *tables) value() (byte, error) {
 	case '{':
 		return nodeInline, t.inline()
 	case '[':
+		t.arrays[t.i] = true
 		return nodeArray, t.array()
 	case '"', '\'':
 		return nodeScalar, t.str()
@@ -271,6 +280,7 @@ func (t *tables) value() (byte, error) {
 	if len(m) == 0 {
 		return 0, errStop // no value starts here
 	}
+	t.bare[t.i] = t.i + len(m)
 	t.i += len(m)
 	return nodeScalar, nil
 }
