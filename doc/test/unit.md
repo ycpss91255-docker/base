@@ -731,7 +731,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (73)
+### test/bats/unit/build_worker_yaml_spec.bats (85)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -866,6 +866,12 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)` | - |
 | `build-worker.yaml: 4 build steps use per-target gha cache scopes (#378 b1, #980)` | - |
 | `build-worker.yaml: extra_stages caches the same way the standard steps do (#980)` | - |
+| `build-worker.yaml: DISABLE_CACHE=true skips the extra-stage cache-export warn calls (#1702)` | With the cache off there is no cache-to, so no export for the warn script to read; calling it anyway reports a missing export on every extra-stage build of a caller that turned the cache off on purpose. |
+| `build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)` | The extra stages are built by a shell step, not the action, so the 4-step YAML guards cannot see them. This runs the real step (which reads `inputs.disable_cache` through an env var, as it does every input) against the stubbed docker: without it, disable_cache would turn the cache off for the main targets and silently leave it on for every extra stage. |
+| `build-worker.yaml: DISABLE_CACHE=false keeps the cache flags on the extra-stage builds (#1702)` | The opposite direction: a gate that dropped the flags whatever the input says would pass the DISABLE_CACHE=true case and quietly take the cache away from every existing caller. |
+| `build-worker.yaml: disable_cache skips the 4 cache-export warn steps (#1702)` | With no cache-to there is no export vertex, so each of the 4 warn steps would report a missing export on every build of a caller that turned the cache off on purpose -- a warning that is always wrong. |
+| `build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)` | Pins the one expression spelling that works. `!disable && format(...) \|\| ''` gives the scope string when enabled and '' when disabled (the action then passes no cache flag). The natural-looking `disable && '' \|\| format(...)` does not: '' is falsy, so it falls through to the cache it was meant to turn off. |
+| `build-worker.yaml: declares disable_cache input as boolean default false (#1702)` | Default false is what keeps every existing caller on the cache it uses today; a true default would turn the cache off for all of them without any of them opting in. |
 | `build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)` | The reported #1013 miss, asserted on what the step BUILDS rather than on what its text says: the detector allowed one token between FROM and AS, so the cross-build form the arm64 matrix invites declared nothing and the stage's smoke test was silently not built. |
 | `build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)` | The cost of widening a detector, pinned in the opposite direction: inventing a `-test` target the Dockerfile does not declare fails the build outright, which is a worse outcome than the miss it was fixing. |
 | `build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)` | The structural half, and the one that stops #1013 recurring: two readers of one fact with a comment asserting they agree is what produced the miss. This fails if the file grows a `FROM ... AS` pattern of its own again, which a behavioural case on a correct pattern cannot see. |
@@ -911,6 +917,12 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
+| `build-worker.yaml: a failed devel-test cache import retries the stage once without cache-from (#1702)` | devel-test is the first cache-from build in the job, so an evicted GHA cache entry fails here before anything else runs; without the retry one stale entry costs the caller a full rerun (isaac#364, base#1702). |
+| `build-worker.yaml: a failed devel cache import retries the stage once without cache-from (#1702)` | devel is the image the job hands on, built from its own cache scope, so it can hit an evicted entry even after devel-test imported cleanly; a retry that still named cache-from would fail the same way. |
+| `build-worker.yaml: a failed runtime-test cache import retries the stage once without cache-from (#1702)` | runtime-test is the install check that gates the runtime image; a stale import there would fail the job for a cache problem, not for a broken install, and the report would blame the wrong thing. |
+| `build-worker.yaml: a failed runtime cache import retries the stage once without cache-from (#1702)` | runtime is the last standard build and the one a release ships; losing it to a stale import after every earlier stage passed is the most expensive form of the base#1702 failure. |
+| `build-worker.yaml: a failed extra-stage build retries once without cache flags (#1702)` | the load-bearing behaviour check: it runs the real build_stage against a stub docker, so it proves the second call drops both cache flags and keeps the target, which a grep of the step cannot show. |
+| `build-worker.yaml: both extra-stage builds go through build_stage, the only caller of buildx (#1702)` | build_stage only protects the calls routed through it; a buildx call added straight into the loop would import a stale cache with no second attempt and every other spec here would still pass. |
 | `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
@@ -1561,7 +1573,7 @@ reads the output the step writes.
 | `classify: a PR that changes the test-tools Dockerfile rebuilds it (#1171)` | The Dockerfile's own case on the PR arm, pinned alongside the two above so a rewrite that reaches for the derivation cannot drop the one input the signal already had. |
 | `classify: a push writes every gated job's selection as true (base#1584)` | cycle 6. Main runs the full suite (owner decision, base#1584), so the push arm writes all nine select_* keys `true`. |
 | `classify: a merge_group run writes every gated job's selection as true (base#1584, base#1587)` | a merge group is the last run before main (base#1587), and only a pull request narrows the selection (base#1584). So a merge_group run writes all nine select_* keys `true` even when its diff is docs only, or the queue would land a commit whose gated jobs never ran. |
-| `self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)` | cycle 6. mutation-roster keeps main's form: no `if:` (roster row selection belongs to base#1604), and the workflow's job list is main's (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in redesign r6). base#1588 adds the two ungated test-tools-image builders after classify. |
+| `self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)` | cycle 6. mutation-roster keeps main's form: no `if:` (roster row selection belongs to base#1604), and the workflow's job list is main's (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in redesign r6). base#1588 adds the two ungated test-tools-image builders after classify; base#1629 adds the ungated single-issue-pr before mutation-roster. |
 | `classify: a pull request touching an unknown path writes every gated job's selection as true (base#1584)` | cycle 24, the issue's fail-closed rule: a pull request touching a path the map does not know runs every gated job. `zz-new/thing.txt` names no directory the repo has. |
 | `classify: a docs-only pull request writes every gated job's selection as false (base#1584)` | cycle 21 (RR3-F1). A docs path selects nothing: the map's doc row is the code_changed allow-list (doc/**, README.md, LICENSE, CONTEXT.md). The base commit holds a real copy of /source/script, so the real map and deny list are read from the base through `git show`. Each value is exact: a classify that never carries a `false` through fails here. |
 | `classify: a pull request changing one unit spec selects coverage and the code checks only (base#1584)` | cycle 22 (RR3-F1). A unit spec is a leaf (row E1): coverage and the code checks run; config-gen, acceptance, system and worker-selftest do not. |
@@ -6733,7 +6745,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (159)
+### test/bats/unit/self_test_yaml_spec.bats (161)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7212,6 +7224,8 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the required-kill roster runs once per mutation-roster leg, on its shard, gated, and never in lint-static (base#1571)` | The hosted environment. The roster runs in a job matrix of its own, `mutation-roster`, named for what it does, and not inside lint-static, where it took about 97% of each shard and was invisible from the checks page (base#1571). Its legs are exactly shards 1/N..N/N, so together they probe every row; each leg runs the roster exactly once, on its own shard, with no `if:` and no continue-on-error, and a red roster fails the step. No lint-static leg runs it at all. |
 | `coverage-local.yaml: the config-gen job runs the required-kill roster once, gated (base#1461)` | The self-hosted environment runs the same command beside `just test go`, gated the same way. |
 | `roster probe: every spelling that runs the roster is seen, and an ungated one is caught (base#1461)` | The probe decides by execution. Each spelling that runs the driver is seen once, a step that does not run it is not seen, and the two ways a step can run it without gating -- `\|\| true` and an `if:` -- are caught. |
+| `self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)` | Branch protection requires ci-rollup alone. A single-issue-pr job outside its needs would be a check nobody is blocked by, and a select_single_issue_pr key would let classify skip it on a doc-only PR, which is exactly where a bundled PR slips through (base#1629). |
+| `self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)` | needs: alone only orders the job. A single-issue-pr job whose step stopped invoking the script would stay green on every PR and gate nothing, so the job body itself must run the script (base#1629). |
 
 ### test/bats/unit/setup_cmd_spec.bats (226)
 
@@ -7850,6 +7864,30 @@ duplicate-target guards, and S7 `runtime.env` retirement (#507).
 | `the three lints share ONE reader pass (#994)` | The one-reader claim in the driver header is the reason three lints live in one file, and it is a performance AND a correctness claim: three passes could disagree about where a function begins. This is the case that keeps the memoisation from being quietly lost. |
 | `_run_shell_metrics: reports all three metrics in one run (#994)` | The combined report is what `just test metrics` runs, so it has to say all three states in one pass rather than stopping at the first -- a report that stopped would hide two thirds of the tree behind whichever metric ran first. |
 | `_run_shell_metrics: FAILS when ONE metric is past its ceiling (#994)` | The combined report has three verdicts to reconcile and one exit status to say them in. Failing when ANY metric is past its own ceiling is what keeps it from being the loosest of the three -- the shape a caller would reach for if it reported the union but judged by the minimum. |
+
+### test/bats/unit/single_issue_pr_spec.bats (15)
+
+Nothing read what a PR will close, so "Closes #1 Closes #2" passed every
+check. These specs pin the verdict at the script's public interface,
+base#1629.
+
+| Test | Description |
+|------|-------------|
+| `single_issue_pr.sh: two closing references fail and the message names both (base#1629)` | The whole point of the check. A script that always exited 0 would leave the bundled-PR habit unenforced; the message must name both issues so the author knows what to split (base#1629). |
+| `single_issue_pr.sh: two closing keywords in commit messages fail with empty closing refs (base#1629)` | The repo squashes with COMMIT_MESSAGES, so a closing keyword in a branch commit closes the issue even when GitHub's reference list for the PR is empty. A script that ignored PR_COMMITS would pass a bundled squash body (base#1629). |
+| `single_issue_pr.sh: the same issue as a qualified ref and a bare commit ref passes (base#1629)` | The same issue reached two ways (GitHub's qualified reference and a bare `#1` in a commit message) is one issue. A script that counted distinct strings would fail a PR that closes exactly one issue (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside a fenced code block is ignored (base#1629)` | A closing keyword inside a fenced code block is quoted text, not a directive, and GitHub does not act on it. A script that grepped raw text would fail a PR that closes exactly one issue because a commit message quotes an example (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside inline code is ignored (base#1629)` | Inline code is quoted text too. A script that only stripped fenced blocks would fail a PR that closes exactly one issue because a commit message mentions `Closes #2` in backticks (base#1629). |
+| `single_issue_pr.sh: a closing keyword inside an HTML comment is ignored (base#1629)` | An HTML comment is not rendered and GitHub does not act on a closing keyword inside it (PR templates ship such comments). A script that only stripped code would fail a PR that closes exactly one issue because a commit message carries a commented-out example (base#1629). |
+| `single_issue_pr.sh: closing keywords written with a colon count (base#1629)` | GitHub accepts a colon after the closing keyword ("Closes: #2"). A script that only matched keyword-space-number would pass a PR that closes two issues written in that form (base#1629). |
+| `single_issue_pr.sh: a comma-separated list after one keyword counts every issue (base#1629)` | GitHub's closing keyword applies to every reference in a comma-separated list ("Closes #1, #2" closes both). A script that only read the number right after the keyword would pass a PR that closes two issues written as one list (base#1629). |
+| `single_issue_pr.sh: an exemption marker with a reason passes and prints the reason (base#1629)` | The check needs an explicit, visible escape hatch for a PR that legitimately closes several issues. A script with no exemption would force authors to defeat the check some other way; the reason must be echoed so the bypass is visible in the job log (base#1629). |
+| `single_issue_pr.sh: with PR_CLOSING_REFS unset the PR body is parsed instead (base#1629)` | Outside CI (a local run, or a hook) there is no GraphQL answer. With PR_CLOSING_REFS unset the script must fall back to the closing keywords in PR_BODY; a script that read only PR_CLOSING_REFS would pass a body that closes two issues (base#1629). |
+| `single_issue_pr.sh: the same number in two repositories counts as two issues (base#1629)` | Issue numbers are per repository. a/b#1 and c/d#1 are two different issues, so a script that compared only the number after `#` would call this PR single-issue and pass it (base#1629). |
+| `single_issue_pr.sh: bold closing keywords in commit messages count (base#1629)` | Authors write closing keywords in markdown bold. A parser that requires the keyword to be followed directly by whitespace misses `**Closes** #1`, so a PR closing two issues that way would pass (base#1629). |
+| `single_issue_pr.sh: owner/repo qualified closing refs in commit messages count (base#1629)` | A closing keyword can point at an issue in another repository (`Closes owner/repo#N`). A parser that only accepts `#N` right after the keyword drops these, so a PR closing two cross-repository issues through its commit messages would pass (base#1629). |
+| `single_issue_pr.sh: an upper-case keyword and its reference on the next line count (base#1629)` | Commit messages get wrapped, so the keyword can end a line and the reference start the next. A parser that matches line by line misses `CLOSES` followed by `#1` on the next line, so a PR closing two issues that way would pass (design item 7, base#1629). |
+| `single_issue_pr.sh: closing keywords followed by issue URLs count (base#1629)` | GitHub accepts a full issue URL after a closing keyword, and a squash body that carries one closes that issue. A parser that read only `#N` forms would pass a PR closing two issues by URL (base#1629). |
 
 ### test/bats/unit/smoke_harness_spec.bats (15)
 
