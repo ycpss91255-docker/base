@@ -20,7 +20,10 @@
 # The stub records each call's argv as ${S}/docker.<n>.argv. `docker
 # image inspect` exits with ${S}/inspect.rc and `docker build` with
 # ${S}/build.rc when those exist, 0 otherwise. For `docker run` it saves
-# stdin as ${S}/in.tar and then runs the step's own container script (the
+# stdin as ${S}/in.tar and dispatches on the recorded `--entrypoint`.
+# `python3` runs this container's real `python3 -I -c <program>` (the
+# argument after `-c`) on that tar, so the verdicts are tomllib's.
+# `/bin/sh` runs the step's own container script (the
 # argument after `-c`) on that tar with a stand-in python3 first on PATH,
 # so the container's loops are the step's, not the stub's. The stand-in
 # oracle program answers `<verdict>\t<sha256 of its stdin>`, as the real
@@ -99,12 +102,17 @@ case "\${1:-}" in
     if [[ -f "${S}/answers" ]]; then
       cat "${S}/answers"
     else
-      script='' prev=''
+      ep='' script='' prev=''
       for a in "\$@"; do
+        [[ "\${prev}" == --entrypoint ]] && ep="\${a}"
         [[ "\${prev}" == -c ]] && script="\${a}"
         prev="\${a}"
       done
-      PATH="${S}/py:\${PATH}" sh -c "\${script}" < "${S}/in.tar" || rc=\$?
+      case "\${ep}" in
+        python3) python3 -I -c "\${script}" < "${S}/in.tar" || rc=\$? ;;
+        /bin/sh) PATH="${S}/py:\${PATH}" sh -c "\${script}" < "${S}/in.tar" || rc=\$? ;;
+        *) printf 'docker stub: no shape for --entrypoint %s\n' "\${ep}" >&2; rc=125 ;;
+      esac
     fi
     [[ -f "${S}/run.rc" ]] && exit "\$(cat "${S}/run.rc")"
     exit "\${rc}"
@@ -249,6 +257,38 @@ _run_calls() {
   assert_success
   assert_output ''
   _answer > "${S}/want.tsv"
+  cmp -- "${S}/want.tsv" "${S}/ctx/toml-oracle/verdicts.tsv" \
+    || fail "verdicts.tsv: $(cat -A -- "${S}/ctx/toml-oracle/verdicts.tsv")"
+}
+
+# why: A verdict is tomllib's only when the real oracle program gave it,
+# run as the container's `python3 -I -c` on the tar, never a stand-in.
+# tomllib.loads takes text, and a TOML file is UTF-8, so the program must
+# decode the file's bytes strictly: forms/ff.toml is `a = 1` with a 0xFF
+# byte in its comment, and decoded with errors=replace it parses (checked
+# here with this container's tomllib), so only strict decoding refuses it.
+# Each row's digest must be of the bytes as planted, not of decoded text.
+# The expected rows are written out: the verdicts by hand, the digests
+# sha256sum's of the planted files (base#1851).
+@test "10-toml-oracle.sh: through the real oracle program, a = 1 is accept, a 0xFF byte in a comment is refuse, and each digest is sha256sum's of the planted bytes (base#1851)" {
+  _put $'a = 1 # \xff' internal/gate/testdata/forms/ff.toml
+  run python3 -I -c 'import sys, tomllib
+tomllib.loads(open(sys.argv[1], "rb").read().decode(errors="replace"))' \
+    "${G}/forms/ff.toml"
+  assert_success
+  _oracle
+  assert_success
+  local _rel _v _d
+  : > "${S}/want.tsv"
+  while read -r _rel _v; do
+    _d="$(sha256sum < "${M}/${_rel}")"
+    printf '%s\t%s\t%s\n' "${_rel}" "${_v}" "${_d%% *}" >> "${S}/want.tsv"
+  done <<'ROWS'
+internal/gate/testdata/forms/a.toml accept
+internal/gate/testdata/forms/ff.toml refuse
+internal/gate/testdata/toml-test/valid/a.toml accept
+testdata/corpus/s1/a.toml accept
+ROWS
   cmp -- "${S}/want.tsv" "${S}/ctx/toml-oracle/verdicts.tsv" \
     || fail "verdicts.tsv: $(cat -A -- "${S}/ctx/toml-oracle/verdicts.tsv")"
 }
