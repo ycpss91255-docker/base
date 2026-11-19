@@ -74,6 +74,22 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: noreply address in message"
 }
 
+# why: Email addresses are matched without regard to case, so the noreply
+# address written in upper case is the same address. A check that matched it
+# case-sensitively would pass an upper-case `Reviewed-by:` trailer, which the
+# marker list does not name, so this pins exit 1 and the sha (base#1989).
+@test "check_commit_attribution.sh: an upper-case noreply address in a trailer fails and names the sha (base#1989)" {
+  local _uc
+  _uc="$(_addr | tr '[:lower:]' '[:upper:]')"
+  _commit "$(printf 'feat: x\n\nReviewed-by: Bot <%s>' "${_uc}")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: noreply address in message"
+}
+
 # why: Git accepts a space before a trailer's colon and prints the trailer in
 # canonical `key: value` form. A check that ran the marker list over the raw
 # body alone would pass `<key> : <model> <other address>`, which names the
