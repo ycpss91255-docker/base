@@ -1,0 +1,67 @@
+kcov-marker-resync.patch -- a trace record that starts with the kcov
+marker ends any open single-quote state (base#1415). Applied in the
+kcov-builder stage of dockerfile/Dockerfile.test-tools AFTER
+kcov-bash53-ansi-c.patch, on top of which it was generated. Only the diff
+below is applied (`git apply` skips this header); if a KCOV_VERSION bump
+moves its context, the apply fails and so does the build.
+
+v43's checkEvents, while its quote state is SINGLE_QUOTE, feeds the next
+line to getInputType and returns without parsing a marker. bash prints
+the expanded operand of `[[ ]]` raw, so `_c="'"; [[ "${_c}" == '`' ]]`
+traces as `kcov@FILE@LINENO@[[ ' == \` ]]`: one unescaped quote, state
+left in SINGLE_QUOTE, and the following marker lines are dropped. The
+diff makes a line that starts a marker record (k+cov@FILE@LINENO@, the
+leading k repeats per subshell level) reset the state and parse as
+normal. Continuation lines of a real multi-line value carry no marker and
+stay swallowed. Trade-off: a continuation line that itself begins with a
+`kcov@path@N@` marker would be read as a record.
+Drop it when a kcov release carries an equivalent resync;
+test/bats/unit/kcov_bash_instrumentation_spec.bats is the check.
+
+diff --git a/src/engines/bash-engine.cc b/src/engines/bash-engine.cc
+index 20b055b..65429b0 100644
+--- a/src/engines/bash-engine.cc
++++ b/src/engines/bash-engine.cc
+@@ -282,8 +282,12 @@ public:
+ 		// Line markers always start with kcov@
+ 
+ 		if (m_inputType == INPUT_SINGLE_QUOTE) {
+-			m_inputType = getInputType(cur);
+-			return true;
++			if (!startsWithMarker(cur)) {
++				m_inputType = getInputType(cur);
++				return true;
++			}
++			// A new marker record: the quote state belongs to the previous record.
++			m_inputType = INPUT_NORMAL;
+ 		}
+ 
+ 		size_t kcovStr = cur.find("kcov@");
+@@ -540,6 +544,27 @@ private:
+ 		return out;
+ 	}
+ 
++	// True when str starts a trace record: k+cov@FILE@LINENO@ (bash repeats
++	// the first PS4 character once per subshell level).
++	static bool startsWithMarker(const std::string &str)
++	{
++		std::string::size_type i = 0;
++
++		while (i < str.size() && str[i] == 'k')
++			i++;
++		if (i == 0 || str.compare(i, 4, "cov@") != 0)
++			return false;
++		i += 4;
++		i = str.find('@', i);
++		if (i == std::string::npos)
++			return false;
++		i++;
++		std::string::size_type digits = i;
++		while (i < str.size() && str[i] >= '0' && str[i] <= '9')
++			i++;
++		return i > digits && i < str.size() && str[i] == '@';
++	}
++
+ 	enum InputType getInputType(const std::string &str)
+ 	{
+ 		enum InputType out = m_inputType;

@@ -155,6 +155,17 @@ on:
             ros1_bridge-humble -> ros1_bridge-humble-x86_64-cache
             ros2_distro + cache_variant=humble-desktop-full
                               -> ros2_distro-humble-desktop-full-x86_64-cache
+      disable_cache:
+        required: false
+        type: boolean
+        default: false
+        description: |
+          Opt-in switch that turns the GHA buildx cache off for every
+          build step (#1702): no `cache-from` and no `cache-to`, so a
+          cache that cannot be imported cannot fail the build and nothing
+          is exported. Use it for an image too large for the repo's GHA
+          cache limit. Default `false` keeps the cache exactly as it is
+          for existing callers.
       free_disk_space:
         required: false
         type: boolean
@@ -582,6 +593,10 @@ jobs:
 
       - name: Build devel-test stage (includes lint + bats smoke)
         id: build_devel_test
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         # The downstream Dockerfile consumes TEST_TOOLS_IMAGE as the
         # source of `COPY --from=${TEST_TOOLS_IMAGE}`; buildx auto-pulls
         # the image from GHCR on `COPY --from=<name:tag>` when the tag
@@ -609,8 +624,8 @@ jobs:
           target: devel-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-test-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-test-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-test-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -626,14 +641,40 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_devel_test.outcome == 'success' }}
+        if: ${{ steps.build_devel_test.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_devel_test.outputs.metadata }}
           CACHE_EXPORT_LABEL: devel-test
         run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
 
+      - name: Retry devel-test stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_devel_test.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
+            ${{ inputs.build_args }}
+
       - name: Build devel stage
         id: build_devel
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         uses: docker/build-push-action@v7
         with:
           context: ${{ inputs.context_path }}
@@ -642,8 +683,8 @@ jobs:
           target: devel
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-devel-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-devel-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -659,11 +700,33 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_devel.outcome == 'success' }}
+        if: ${{ steps.build_devel.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_devel.outputs.metadata }}
           CACHE_EXPORT_LABEL: devel
         run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+
+      - name: Retry devel stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_devel.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: devel
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            HARDWARE=${{ matrix.hardware }}
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
+            ${{ inputs.build_args }}
 
       - name: Resolve runtime stages from the Dockerfile
         # #925 -- the Dockerfile is the single source of truth for whether
@@ -692,6 +755,10 @@ jobs:
 
       - name: Build runtime-test stage (install check)
         id: build_runtime_test
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         # Mirrors the devel-test pattern (#243): ephemeral stage
         # FROM runtime, runs an inline `RUN <smoke>` so build failure
         # surfaces a smoke failure. Default smoke is generic
@@ -716,8 +783,8 @@ jobs:
           target: runtime-test
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-test-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-test-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-test-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -732,14 +799,39 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_runtime_test.outcome == 'success' }}
+        if: ${{ steps.build_runtime_test.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_runtime_test.outputs.metadata }}
           CACHE_EXPORT_LABEL: runtime-test
         run: bash .worker-base/script/ci/build_worker/cache_export_warn.sh
 
+      - name: Retry runtime-test stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_runtime_test.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime-test
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
+            ${{ inputs.build_args }}
+
       - name: Build runtime stage
         id: build_runtime
+        # A failed cache import must not fail the job: the step after this
+        # one retries without cache-from (base#1702). A failure that is not
+        # an import failure fails again there, and that step fails the job.
+        continue-on-error: true
         if: ${{ steps.runtime.outputs.build_runtime == 'true' }}
         uses: docker/build-push-action@v7
         with:
@@ -749,8 +841,8 @@ jobs:
           target: runtime
           platforms: ${{ matrix.platform }}
           push: false
-          cache-from: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache
-          cache-to: type=gha,scope=${{ steps.cache.outputs.key }}-runtime-cache,mode=max,ignore-error=true
+          cache-from: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-cache', steps.cache.outputs.key) || '' }}
+          cache-to: ${{ !inputs.disable_cache && format('type=gha,scope={0}-runtime-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}
           build-args: |
             USER_NAME=ci
             USER_GROUP=ci
@@ -765,7 +857,7 @@ jobs:
         # an export did not finish. Gated on the build's outcome: a skipped
         # build is `skipped` and a red one `failure`, so it runs only after
         # a build that ran and passed (base#1602).
-        if: ${{ steps.build_runtime.outcome == 'success' }}
+        if: ${{ steps.build_runtime.outcome == 'success' && !inputs.disable_cache }}
         env:
           BUILD_METADATA: ${{ steps.build_runtime.outputs.metadata }}
           CACHE_EXPORT_LABEL: runtime
@@ -792,6 +884,26 @@ jobs:
       # built (#1013). Reached through the same version-matched
       # `.worker-base` checkout as the cache-scope and runtime resolvers.
       # ────────────────────────────────────────────────────────────
+      - name: Retry runtime stage without the cache import
+        # The first attempt failed, most often on a cache import that no
+        # longer resolves (base#1702). Build the same target once more with
+        # no cache-from and no cache-to, so nothing is imported or exported.
+        if: ${{ steps.build_runtime.outcome == 'failure' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ inputs.context_path }}
+          file: ${{ inputs.dockerfile_path || format('{0}/Dockerfile', inputs.context_path) }}
+          build-contexts: ${{ inputs.build_contexts }}
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          push: false
+          build-args: |
+            USER_NAME=ci
+            USER_GROUP=ci
+            USER_UID=1000
+            USER_GID=1000
+            ${{ inputs.build_args }}
+
       - name: Build extra stages
         if: ${{ inputs.extra_stages != '' }}
         env:
@@ -804,6 +916,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
           HARDWARE: ${{ matrix.hardware }}
           TEST_TOOLS_IMAGE: ${{ steps.testtools.outputs.image }}
+          DISABLE_CACHE: ${{ inputs.disable_cache }}
         run: |
           set -euo pipefail
 
@@ -817,6 +930,47 @@ jobs:
           cache_to_for() {
             local scope="$1"
             printf 'type=gha,scope=%s,mode=max,ignore-error=true' "${scope}"
+          }
+          # The cache flags for one build, in `cache_flags`: both, or none
+          # when the caller set `disable_cache` (#1702).
+          set_cache_flags() {
+            local scope="$1"
+            cache_flags=()
+            if [ "${DISABLE_CACHE:-}" != "true" ]; then
+              cache_flags=(
+                --cache-from "$(cache_from_for "${scope}")"
+                --cache-to "$(cache_to_for "${scope}")"
+              )
+            fi
+          }
+
+          # One build of one extra stage. A build that fails is run once more
+          # with no cache flags, because a cache import that no longer
+          # resolves fails the whole build (base#1702). A failure that is not
+          # an import failure fails again with no cache, and the second
+          # status is the one returned. The retry exports nothing, so the
+          # export check after a retried build warns that no export ran.
+          build_stage() {
+            local target="$1" scope="$2" metadata="$3"
+            set_cache_flags "${scope}"
+            if docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${target}" \
+              --platform "${PLATFORM}" \
+              "${cache_flags[@]}" \
+              --metadata-file "${metadata}" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"; then
+              return 0
+            fi
+            echo "::warning::build of ${target} failed; retrying once without the cache"
+            docker buildx build \
+              --file "${DOCKERFILE}" \
+              --target "${target}" \
+              --platform "${PLATFORM}" \
+              --metadata-file "${metadata}" \
+              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
+              "${CONTEXT_PATH}"
           }
 
           blocklist="sys devel-base devel devel-test runtime-test runtime"
@@ -871,40 +1025,30 @@ jobs:
             # roster for the same reason.
             if grep -Fx -- "${test_stage}" > /dev/null <<< "${available_stages}"; then
               echo "::group::Build ${test_stage} (extra stage test)"
-              docker buildx build \
-                --file "${DOCKERFILE}" \
-                --target "${test_stage}" \
-                --platform "${PLATFORM}" \
-                --cache-from "$(cache_from_for "${CACHE_KEY}-${test_stage}-cache")" \
-                --cache-to "$(cache_to_for "${CACHE_KEY}-${test_stage}-cache")" \
-                --metadata-file "${RUNNER_TEMP}/${test_stage}.json" \
-                "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
-                "${CONTEXT_PATH}"
+              build_stage "${test_stage}" "${CACHE_KEY}-${test_stage}-cache" \
+                "${RUNNER_TEMP}/${test_stage}.json"
               echo "::endgroup::"
               # Reached only when the test-stage build ran and passed, as
               # for the stage build below (base#1602).
-              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
-                CACHE_EXPORT_LABEL="${test_stage}" \
-                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+              if [ "${DISABLE_CACHE:-}" != "true" ]; then
+                BUILD_METADATA="$(cat "${RUNNER_TEMP}/${test_stage}.json")" \
+                  CACHE_EXPORT_LABEL="${test_stage}" \
+                  bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+              fi
             fi
 
             echo "::group::Build ${stage} (extra stage)"
-            docker buildx build \
-              --file "${DOCKERFILE}" \
-              --target "${stage}" \
-              --platform "${PLATFORM}" \
-              --cache-from "$(cache_from_for "${CACHE_KEY}-${stage}-cache")" \
-              --cache-to "$(cache_to_for "${CACHE_KEY}-${stage}-cache")" \
-              --metadata-file "${RUNNER_TEMP}/${stage}.json" \
-              "${build_arg_flags[@]}" "${build_ctx_flags[@]}" \
-              "${CONTEXT_PATH}"
+            build_stage "${stage}" "${CACHE_KEY}-${stage}-cache" \
+              "${RUNNER_TEMP}/${stage}.json"
             echo "::endgroup::"
             # Reached only when the build above passed (`set -e`): the
             # export is ignore-error=true, so read the build's own record
             # and warn when it did not finish (base#1602).
-            BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
-              CACHE_EXPORT_LABEL="${stage}" \
-              bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+            if [ "${DISABLE_CACHE:-}" != "true" ]; then
+              BUILD_METADATA="$(cat "${RUNNER_TEMP}/${stage}.json")" \
+                CACHE_EXPORT_LABEL="${stage}" \
+                bash .worker-base/script/ci/build_worker/cache_export_warn.sh
+            fi
           done
 
       # ── Reclaim ──────────────────────────────────────────────────
