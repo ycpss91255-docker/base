@@ -36,18 +36,25 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 	return &Refusal{File: label, Line: line, Col: col, Reason: reason, Text: text}
 }
 
-// escapePattern matches the TOML 1.1-only `\e` and `\x` escapes.
-var escapePattern = regexp.MustCompile(`\\[ex]`)
+// tokenPattern reads src left to right as comments, multi-line literal
+// strings, literal strings and basic strings; any other byte is skipped.
+// A basic string stops at its closing quote, at a line end, or at a `\e`
+// or `\x` escape, which is then group 1. Any other escape, `\\` among
+// them, is read as one unit, so its second byte never starts an escape.
+var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)'''|'[^'\n]*'|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
 
 // Check returns nil, or a *Refusal that names label and the offending
 // byte of src (base#1850): the backslash of the first `\e` or `\x`
-// escape.
+// escape in a basic string. The same bytes in a comment, a literal string
+// or a multi-line literal are TOML 1.0 and are accepted.
 func Check(label string, src []byte) error {
-	loc := escapePattern.FindIndex(src)
-	if loc == nil {
-		return nil
+	// Every token is at least one byte, so src holds at most len(src).
+	for _, m := range tokenPattern.FindAllSubmatchIndex(src, len(src)) {
+		if m[2] != -1 {
+			return escapeRefusal(label, src, m[2])
+		}
 	}
-	return escapeRefusal(label, src, loc[0])
+	return nil
 }
 
 // escapeRefusal is the refusal for the `\e` or `\x` escape whose
