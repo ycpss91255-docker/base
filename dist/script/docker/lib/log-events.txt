@@ -338,6 +338,7 @@ ci_toml_fixture
 ci_canonical_ignore_sync
 ci_home_literal
 ci_arch_literal
+ci_moving_tag
 ci_bash_source_guard
 ci_early_close_reader
 ci_errexit_bang

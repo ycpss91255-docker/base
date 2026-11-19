@@ -22,7 +22,7 @@
 #                             # --adr-structure-only /
 #                             # --stale-setup-conf-only / --readme-sync-only
 #                             # / --doc-counts-only / --home-literal-only /
-#                             # --arch-literal-only /
+#                             # --arch-literal-only / --moving-tag-only /
 #                             # --bash-source-guard-only /
 #                             # --derived-figures-only / --i18n-orphan-only /
 #                             # --early-close-reader-only /
@@ -123,6 +123,8 @@ source "${SCRIPT_DIR}/drivers/doc_counts.sh"
 source "${SCRIPT_DIR}/drivers/home_literal.sh"
 # shellcheck source=script/test/drivers/arch_literal.sh
 source "${SCRIPT_DIR}/drivers/arch_literal.sh"
+# shellcheck source=script/test/drivers/moving_tag.sh
+source "${SCRIPT_DIR}/drivers/moving_tag.sh"
 # shellcheck source=script/test/drivers/bash_source_guard.sh
 source "${SCRIPT_DIR}/drivers/bash_source_guard.sh"
 # shellcheck source=script/test/drivers/early_close_reader.sh
@@ -190,6 +192,7 @@ readonly _LINT_TOOLS=(
   doc-counts
   home-literal
   arch-literal
+  moving-tag
   bash-source-guard
   early-close-reader
   errexit-bang
@@ -485,6 +488,7 @@ _run_lint_tool() {
     doc-counts)       _run_doc_counts ;;
     home-literal)     _run_home_literal ;;
     arch-literal)     _run_arch_literal ;;
+    moving-tag)       _run_moving_tag ;;
     bash-source-guard) _run_bash_source_guard ;;
     early-close-reader) _run_early_close_reader ;;
     errexit-bang)     _run_errexit_bang ;;
@@ -727,6 +731,12 @@ Options:
                           other platform's image. Express it via
                           ARG TARGETARCH; a mapping onto an upstream asset
                           spelling opts out with a reason)
+  --moving-tag            With --lint: run only the moving test-tools tag
+                          lint (no workflow, Dockerfile, compose file or
+                          script in base resolves the test-tools image by
+                          :latest, :main, no tag or a tag it cannot pin,
+                          outside the per-line allow-list in
+                          drivers/moving_tag.sh)
   --bash-source-guard     With --lint: run only the unguarded BASH_SOURCE
                           read lint (a self-locating read under dist/ or
                           script/ must default to $0; undefaulted it aborts
@@ -891,6 +901,7 @@ Options:
                             --doc-counts-only        pure bash + diff
                             --home-literal-only      pure bash
                             --arch-literal-only      pure bash
+                            --moving-tag-only        pure bash
                             --bash-source-guard-only pure bash
                             --early-close-reader-only pure bash
                             --errexit-bang-only      pure bash
@@ -1085,6 +1096,7 @@ Examples:
   just test lint --doc-counts     # doc/test count drift gate only
   just test lint --home-literal   # hardcoded home path lint only
   just test lint --arch-literal   # bare architecture literal lint only
+  just test lint --moving-tag     # moving test-tools tag lint only
   just test lint --bash-source-guard  # unguarded BASH_SOURCE read lint only
   just test lint --early-close-reader # early-closing-reader pipeline lint only
   just test lint --errexit-bang   # non-final bang-statement lint only
@@ -1099,6 +1111,7 @@ Examples:
   ./test.sh --readme-sync-only    # Direct localized README sync lint, no compose
   ./test.sh --home-literal-only   # Direct hardcoded home path lint, no compose
   ./test.sh --arch-literal-only   # Direct bare architecture literal lint, no compose
+  ./test.sh --moving-tag-only     # Direct moving test-tools tag lint, no compose
   ./test.sh --bash-source-guard-only  # Direct unguarded BASH_SOURCE lint, no compose
   ./test.sh --early-close-reader-only # Direct early-closing-reader lint, no compose
   ./test.sh --errexit-bang-only   # Direct non-final bang-statement lint, no compose
@@ -2814,6 +2827,7 @@ main() {
       --doc-counts) lint_tool="doc-counts"; shift ;;
       --home-literal) lint_tool="home-literal"; shift ;;
       --arch-literal) lint_tool="arch-literal"; shift ;;
+      --moving-tag) lint_tool="moving-tag"; shift ;;
       --bash-source-guard) lint_tool="bash-source-guard"; shift ;;
       --early-close-reader) lint_tool="early-close-reader"; shift ;;
       --errexit-bang) lint_tool="errexit-bang"; shift ;;
@@ -2842,6 +2856,7 @@ main() {
       --doc-counts-only) host_lint="doc-counts"; shift ;;
       --home-literal-only) host_lint="home-literal"; shift ;;
       --arch-literal-only) host_lint="arch-literal"; shift ;;
+      --moving-tag-only) host_lint="moving-tag"; shift ;;
       --bash-source-guard-only) host_lint="bash-source-guard"; shift ;;
       --early-close-reader-only) host_lint="early-close-reader"; shift ;;
       --errexit-bang-only) host_lint="errexit-bang"; shift ;;

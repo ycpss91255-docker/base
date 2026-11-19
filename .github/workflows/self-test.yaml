@@ -746,6 +746,11 @@ jobs:
     #                     time. Express it via ARG TARGETARCH; the mapping
     #                     onto an upstream asset spelling opts out with a
     #                     stated reason
+    #   moving-tag        nothing in base's workflows, Dockerfiles, compose
+    #                     file or scripts resolves the test-tools image by
+    #                     :latest, :main, no tag or an unpinnable tag,
+    #                     outside the per-line allow-list in
+    #                     script/test/drivers/moving_tag.sh (base#1647)
     #   bash-source-guard no undefaulted BASH_SOURCE self-location read
     #                     under dist/ or script/ -- likewise joined here on
     #                     the day it was written
