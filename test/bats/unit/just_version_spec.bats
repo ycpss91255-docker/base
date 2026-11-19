@@ -84,7 +84,7 @@ _seed_tree() {
   run grep -E '^COPY --from=just-runner ' "${DOCKERFILE}"
   assert_success
   # No apk line anywhere in the file may install `just` as a package.
-  run grep -nE 'apk add .*\bjust\b' "${DOCKERFILE}"
+  run grep -nE 'apk(-retry)? add .*\bjust\b' "${DOCKERFILE}"
   assert_failure
   [ "${status}" -eq 1 ] || fail "grep errored (${status}), it did not merely fail to match"
 }

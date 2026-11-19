@@ -141,6 +141,12 @@ RUN if [ -z "${APK_MIRROR}" ]; then \
     elif [ "${APK_MIRROR}" != "dl-cdn.alpinelinux.org" ]; then \
       sed -i "s@dl-cdn\.alpinelinux\.org@${APK_MIRROR}@g" /etc/apk/repositories; \
     fi
+# Every package stage derives from this one, so the retry wrapper rides
+# along: a transient index failure (403 after a long stall, base#1422) is
+# retried with backoff and a lasting one fails with a clear message.
+# Stages call `apk-retry add ...`, never a bare `apk add`;
+# test/bats/unit/apk_retry_spec.bats holds the line.
+COPY dockerfile/apk-retry.sh /usr/local/bin/apk-retry
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
@@ -159,7 +165,7 @@ ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
 ARG BATS_ASSERT_COMMIT=78fa631d1370562d2cd4a1390989e706158e7bf0
-RUN apk add --no-cache git && \
+RUN apk-retry add --no-cache git && \
     git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
     { [ "$(git -C /bats/bats-support rev-parse HEAD)" = "${BATS_SUPPORT_COMMIT}" ] || { \
@@ -202,7 +208,7 @@ ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680
 ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
 # hadolint ignore=DL4006
-RUN apk add --no-cache curl xz && \
+RUN apk-retry add --no-cache curl xz && \
     case "${TARGETARCH}" in \
       amd64)  sc_arch="x86_64";  hd_arch="x86_64"; sc_sha="${SHELLCHECK_SHA256_AMD64}"; hd_sha="${HADOLINT_SHA256_AMD64}" ;; \
       arm64)  sc_arch="aarch64"; hd_arch="arm64";  sc_sha="${SHELLCHECK_SHA256_ARM64}"; hd_sha="${HADOLINT_SHA256_ARM64}" ;; \
@@ -286,23 +292,17 @@ RUN case "${TARGETARCH}" in \
 # and per-file covered counts matched the debian kcov baseline within <0.1%
 # (codecov threshold is 1%) and were bit-stable across repeated runs.
 #
-# The apk line retries: the Alpine `main` index fetch has failed
-# intermittently on this stage (base#1414), and a toolchain this size is
-# the longest fetch in the file. The loop stops at the first success and
-# fails the build after the last attempt.
+# The apk line retries through apk-retry: the Alpine `main` index fetch has
+# failed intermittently on this stage (base#1414), and a toolchain this size
+# is the longest fetch in the file.
 FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
 ARG KCOV_COMMIT
 COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
 COPY dockerfile/kcov-bash53-ansi-c.patch /tmp/kcov-bash53-ansi-c.patch
-RUN for _try in 1 2 3 4; do \
-      apk add --no-cache \
+RUN apk-retry add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
-        zlib-dev python3 git && break; \
-      [ "${_try}" -lt 4 ] || exit 1; \
-      echo "apk add failed (attempt ${_try} of 4); retrying in 10 s" >&2; \
-      sleep 10; \
-    done && \
+        zlib-dev python3 git && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
     { [ "$(git -C /tmp/kcov rev-parse HEAD)" = "${KCOV_COMMIT}" ] || { \
@@ -412,7 +412,7 @@ FROM alpine-apk
 # package that needed a version of its own -- just, the runner the whole
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc jq \
+RUN apk-retry add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc jq \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
