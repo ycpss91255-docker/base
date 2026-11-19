@@ -1007,12 +1007,18 @@ STUB
 
 # ── the commit-attribution leg (base#1989) ───────────────────────────────────
 
+# The co-author trailer the attribution check refuses, built from parts so
+# the repo's own attribution guards do not fire on this file.
+_attributed_message() {
+  printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
+    Co Authored By Cla ude noreply anthropic com
+}
+
 # why: The mirror attests the commit-attribution job through
 # `--commit-attribution`. A body that returned 0 without running the check
 # left every other spec green, so the leg could pass a branch CI fails. A
 # commit after the base carrying the co-author trailer must make the leg
-# exit non-zero and name that commit's sha. The marker is built from parts
-# so the repo's own attribution guards do not fire on this file.
+# exit non-zero and name that commit's sha.
 @test "pre-PR mirror: --commit-attribution fails a commit after the base that carries the co-author trailer (base#1989)" {
   _require_mirror
   local _base _bad _r="${SCRATCH}/repo"
@@ -1021,8 +1027,7 @@ STUB
   git -C "${_r}" -c user.name=t -c user.email=t@t add -A
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
-    -m "$(printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
-      Co Authored By Cla ude noreply anthropic com)"
+    -m "$(_attributed_message)"
   _bad="$(git -C "${_r}" rev-parse HEAD)"
   run env PRE_PR_MIRROR_BASE="${_base}" "$(command -v bash)" \
       "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
@@ -1034,8 +1039,7 @@ STUB
 # PRE_PR_MIRROR_BASE. Without it the attribution leg fell back to
 # origin/main and walked commits a PR from X would never carry, and no
 # spec noticed. Here the offender is the base itself and origin/main points
-# below it, so only a leg that walks <base>..HEAD passes. The marker is
-# built from parts so the repo's own attribution guards do not fire here.
+# below it, so only a leg that walks <base>..HEAD passes.
 @test "pre-PR mirror: --base hands its base to the commit-attribution leg, not origin/main (base#1989)" {
   _require_mirror
   local _root _base _real _r="${SCRATCH}/repo"
@@ -1044,8 +1048,7 @@ STUB
   cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
   git -C "${_r}" -c user.name=t -c user.email=t@t add -A
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q \
-    -m "$(printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
-      Co Authored By Cla ude noreply anthropic com)"
+    -m "$(_attributed_message)"
   _base="$(git -C "${_r}" rev-parse HEAD)"
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "fix: clean"
   git -C "${_r}" update-ref refs/remotes/origin/main "${_root}"
