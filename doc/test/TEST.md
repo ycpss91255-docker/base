@@ -47,7 +47,8 @@ missing one in a single message (event `ci_missing_prerequisite`):
 
 A third need, a readable git repository for one pin-registry test, is not
 checked up front: a worktree checkout mounted into the container has no
-readable `.git`, and refusing there would break supported runs.
+readable `.git`, and refusing there would break supported runs. Reporting
+it by name is tracked in base#1996.
 
 ## Running one spec: `just test bats-path`
 
