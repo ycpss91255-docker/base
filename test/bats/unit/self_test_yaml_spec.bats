@@ -2209,15 +2209,23 @@ EOF
 
 # why: check_commit_attribution.sh only guards a pull request if a job runs it
 # over that pull request's range and the required check waits on that job.
-# A script no job calls, a job that reads the wrong range, or a shallow clone
-# with no base commit to walk from would all leave an attributed commit free
-# to merge, so this pins the job's range env, its full-history checkout and
-# its place in ci-rollup's needs (base#1989).
+# A step whose run line only names the script (an echo of it, or the call
+# with its exit status dropped), a job that reads the wrong range, or a
+# shallow clone with no base commit to walk from would all leave an
+# attributed commit free to merge. So this pins the step's whole run command
+# by equality, its range env, the full-history checkout and the job's place
+# in ci-rollup's needs (base#1989).
 @test "self-test.yaml: a commit-attribution job runs check_commit_attribution.sh over the PR or merge_group range and gates ci-rollup (base#1989)" {
   # Expected literals are the approved design's (design-r2 section 2): job
   # `commit-attribution`, checkout `fetch-depth: 0`, BASE_SHA and HEAD_SHA from
   # the pull_request fields or else the merge_group ones, and a ci-rollup need.
-  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run // "" | test("check_commit_attribution\.sh")) | .env | to_entries | .[] | .key + "=" + .value'
+  # The run command is the job's own: `bash ./script/ci/check_commit_attribution.sh`.
+  # Every step whose run line names the script is listed, so a second step
+  # that only names it would show up as an extra line.
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run // "" | test("check_commit_attribution")) | .run'
+  assert_success
+  assert_output 'bash ./script/ci/check_commit_attribution.sh'
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run == "bash ./script/ci/check_commit_attribution.sh") | .env | to_entries | .[] | .key + "=" + .value'
   assert_success
   assert_output - <<'EOF'
 EVENT_NAME=${{ github.event_name }}
