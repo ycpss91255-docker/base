@@ -60,6 +60,12 @@ _root() {
   printf 'FROM scratch\n' > "${S}/root/dockerfile/Dockerfile.config-gen"
 }
 
+# _CG_TEST_GATES -- the test stage's gates that print an ok line, in
+# order (base#1850). Every expectation of which gates a run prints is
+# derived from this one list; the order test below holds it to the
+# Dockerfile's test-stage RUNs.
+readonly -a _CG_TEST_GATES=(fmt vet lint race coverage fuzz)
+
 # _gate_log <gate>... -- the plain-progress lines a test-stage build prints
 # when each named gate passed.
 _gate_log() {
@@ -77,7 +83,7 @@ _gate_log() {
 # --iidfile and, under -q, prints it. `run` prints ${S}/run.out with no
 # newline and exits ${S}/run.rc.
 _stub_docker() {
-  _gate_log fmt vet lint race coverage > "${S}/build_test.err"
+  _gate_log "${_CG_TEST_GATES[@]}" > "${S}/build_test.err"
   printf '0\n' > "${S}/build_test.rc"
   printf '' > "${S}/run.out"
   printf '2\n' > "${S}/run.rc"
@@ -168,7 +174,7 @@ _df_instructions() {
   local _gates
   _gates="$(_df_instructions | awk -F'\t' '$1 == "test" && $2 ~ /^RUN / {print $2}' \
       | grep -oE 'gate=[a-z]+ ok' | sed -E 's/^gate=([a-z]+) ok$/\1/' | paste -sd' ')"
-  assert_equal "${_gates}" "fmt vet lint race coverage fuzz"
+  assert_equal "${_gates}" "${_CG_TEST_GATES[*]}"
   # One gate per RUN: no test-stage RUN carries two ok lines.
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / { n = gsub(/gate=[a-z]+ ok/, "&"); if (n > 1) print }' "${S}/df"
@@ -383,7 +389,7 @@ _run_df_body() {
   _run_runner
   assert_success
   run grep -E '^gate=[a-z]+ ok$' <<<"${output}"
-  assert_output "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
+  assert_output "$(printf 'gate=%s ok\n' "${_CG_TEST_GATES[@]}")"
   # f. argv is read as an array: the gates run uncached, on the test target,
   # from the config-gen Dockerfile and module context under --root.
   local _test
@@ -669,7 +675,7 @@ _digest_of() {
   printf 'echo step-report\n' > "${S}/root/script/test/config_gen_steps/10-a.sh"
   _run_runner
   assert_success
-  assert_equal "${output}" "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
+  assert_equal "${output}" "$(printf 'gate=%s ok\n' "${_CG_TEST_GATES[@]}")"
   assert_stderr_contains step-report
 }
 
