@@ -152,6 +152,32 @@ SEEDS
   assert_equal "${_rows}" 2
 }
 
+# why: The fuzz gate's fail path (base#1850) is the one line of the fuzz RUN
+# that turns a red search, listing or corpus root read into
+# config_gen_gate_fuzz_failed and exit 1. Without a required-kill row, a
+# mutant that makes that line a no-op is never probed. So s5.tsv has to hold
+# the row gate-fuzz-fail-path whose spec is the gates spec, whose decoded
+# <old> is a line of the fuzz RUN (between its g=fuzz and its gate=fuzz ok)
+# carrying that id and its exit 1, occurring once in the subject, and whose
+# decoded <new> drops the exit.
+@test "roster: the S5 fuzz-gate row disables the fuzz RUN's fail path (base#1850)" {
+  local _tsv=/source/script/test/mutation_required/s5.tsv
+  local _subj=dockerfile/Dockerfile.config-gen _line _old _new _run
+  [[ -f "${_tsv}" ]] || fail "the roster has no s5.tsv"
+  _line="$(awk -F'\t' '!/^#/ && $1 == "gate-fuzz-fail-path"' "${_tsv}")"
+  [[ -n "${_line}" ]] || fail "s5.tsv has no row gate-fuzz-fail-path"
+  assert_equal "$(cut -f2 <<< "${_line}")" "${_subj}"
+  assert_equal "$(cut -f3 <<< "${_line}")" test/bats/unit/config_gen_gates_spec.bats
+  _old="$(_decode "$(cut -f4 <<< "${_line}")")" || fail "bad escape in old"
+  _new="$(_decode "$(cut -f5 <<< "${_line}")")" || fail "bad escape in new"
+  [[ "${_old}" == *'config_gen_gate_${g}_failed'*'exit 1'* ]] \
+    || fail "old is not the fail path: ${_old}"
+  [[ "${_new}" != *'exit 1'* ]] || fail "new keeps the exit: ${_new}"
+  assert_equal "$(grep -cxF -- "${_old}" "/source/${_subj}")" 1
+  _run="$(awk '/g=fuzz;/ { f = 1 } f { print } f && /echo gate=fuzz ok/ { exit }' "/source/${_subj}")"
+  grep -qxF -- "${_old}" <<< "${_run}" || fail "old is not a line of the fuzz RUN: ${_old}"
+}
+
 # why: The runner's own validation over the committed roster, not the
 # spec's re-reading of it: a contract the runner reads differently from the
 # documented one (a lost empty <new>, a decoder that is not the three

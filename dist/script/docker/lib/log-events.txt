@@ -7,6 +7,7 @@
 # setup.sh
 env_regenerated
 env_drift_detected
+drift_grep_p_unsupported
 env_migrated_to_local
 env_local_migration_conflict
 setup_conf_migrated_to_root
@@ -337,6 +338,7 @@ ci_toml_fixture
 ci_canonical_ignore_sync
 ci_home_literal
 ci_arch_literal
+ci_moving_tag
 ci_bash_source_guard
 ci_early_close_reader
 ci_errexit_bang
@@ -429,6 +431,9 @@ config_gen_gate_vet_failed
 config_gen_gate_lint_failed
 config_gen_gate_race_failed
 config_gen_gate_coverage_failed
+# The sixth gate, fuzz (base#1850): a Fuzz target's 60 s search found a
+# failing input.
+config_gen_gate_fuzz_failed
 config_gen_build_failed
 config_gen_step_failed
 config_gen_step_reused
