@@ -274,3 +274,53 @@ func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
 		}
 	}
 }
+
+// A time without seconds (HH:MM) is TOML 1.1 only: the TOML 1.0 ABNF has
+// partial-time = time-hour ":" time-minute ":" time-second [ time-secfrac ],
+// so tomllib refuses `a = 07:32` and `a = 1979-05-27 07:32` (rc=1, base#1850
+// probe) while BurntSushi v1.6.0 accepts them. The rule fires on bare value
+// tokens only. The refusal points at the first byte of the value token,
+// counted by hand: a(1) ' '(2) =(3) ' '(4) 0, 1 or 2(5); behind a comment
+// line, `  07:32` starts at 2:3 after the two-space indent. The rows cover
+// the local time, the offset datetime (`T`), the local datetime (space, so
+// a gate splitting the token at the space misses it) and a lowercase `t`
+// delimiter. A time with seconds, and the same bytes in a basic string,
+// are nil.
+func TestCheckRefusesTimeWithoutSeconds(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"local-time", "a = 07:32\n", 1, 5},
+		{"offset-datetime", "a = 1979-05-27T07:32Z\n", 1, 5},
+		{"local-datetime-space", "a = 1979-05-27 07:32\n", 1, 5},
+		{"lowercase-t", "a = 2021-01-01t10:00\n", 1, 5},
+		{"behind-comment", "a = [ # c\n  07:32\n]\n", 2, 3},
+	} {
+		// Control: the decoder accepts the form, so the gate is the only
+		// thing between these bytes and a TOML 1.1 parse.
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err != nil {
+			t.Fatalf("%s: toml.Decode(%q) = %v, want nil (the decoder accepts a time without seconds)", tc.name, tc.src, err)
+		}
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonTimeNoSeconds {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonTimeNoSeconds}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"c1", "a = 07:32:00\n"},
+		{"c2", "a = \"07:32\"\n"},
+		{"c3", "a = 2021-01-01t10:00:00\n"},
+	} {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
