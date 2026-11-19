@@ -345,6 +345,24 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: generated-with footer in message"
 }
 
+# why: The hook's marker list is matched without regard to case, so the
+# generated-with footer in lower case is the same marker. A check that
+# matched the footer case-sensitively would pass it, so this pins exit 1,
+# the sha and the footer's own label for a lower-case footer with a link
+# (base#1989).
+@test "check_commit_attribution.sh: a lower-case generated-with footer fails and names the sha (base#1989)" {
+  local _lc
+  _lc="$(printf '%s with [%s Code](https://example.com/x)' "Generated" "$(_model)" | tr '[:upper:]' '[:lower:]')"
+  _commit "$(printf 'feat: x\n\n%s' "${_lc}")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: generated-with footer in message"
+  refute_output --partial "co-author trailer naming the model in message"
+}
+
 # why: The hook's marker list allows any run of space after the co-author
 # key's colon, none included. Git only rewrites a trailer in the last
 # paragraph into `key: value` form, so a co-author line with no space after
