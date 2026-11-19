@@ -149,3 +149,23 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
+
+# why: The differential test reads each row's second field as tomllib's
+# verdict, and only `accept` and `refuse` are verdicts. An answer with the
+# right number of rows whose middle row says `maybe` is not something
+# tomllib said about that file, and it must not reach the build. The step
+# must refuse under the five-point refusal test: status 1, nothing on
+# stdout, config_gen_toml_oracle_failed reason=token, and no toml-oracle/
+# directory left behind.
+@test "10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1851)" {
+  _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
+  printf '%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept \
+    internal/gate/testdata/forms/b.toml maybe \
+    internal/gate/testdata/toml-test/invalid/c.toml refuse \
+    > "${S}/answers"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=token
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
