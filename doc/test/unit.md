@@ -287,6 +287,15 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | The file runs apk in four stages, so a knob wired into one leaves the build dying in the next -- later, and with the same misleading message. This is the assertion that names a newly added alpine stage here, on any machine, rather than on the one host that cannot reach dl-cdn and would otherwise be the only place it shows up. |
 
+### test/bats/unit/apk_retry_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `apk-retry: a transient apk failure is retried and then succeeds` | base#1422 -- a transient index failure must be retried; before the wrapper the build died on the first 403. |
+| `apk-retry: a lasting apk failure exits non-zero after a bounded number of tries with a clear message` | base#1422 -- a lasting failure must still fail, within a bound, and say so; an unbounded loop would hang the build instead of reporting it. |
+| `Dockerfile.test-tools: no apk add or apk update bypasses apk-retry` | base#1422 -- the first slice of the issue: every apk call in the Dockerfile goes through the wrapper. Comment lines are skipped because the file discusses `apk add` in prose more often than it runs it. |
+| `Dockerfile.test-tools: the alpine-apk base stage ships the apk-retry helper` | base#1422 -- the wrapper has to reach the image: a Dockerfile that calls apk-retry without COPYing it fails every package stage. |
+
 ### test/bats/unit/apt_retry_spec.bats (5)
 
 An image build failed on one `404 Not Found` from a skewed apt mirror (base
@@ -2688,6 +2697,19 @@ name is not a spec identity on its own.
 | `self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)` | the fetch half of the local path. A job output cannot be downloaded after the run; an artifact can (`gh run download <run> -n shard-weights`), so compute-shards publishes the exact file it encoded. |
 | `justfile: coverage takes an optional weights file and forwards it as --shard-weights (base#1410)` | the `just` entry. `just test coverage N/T <weights>` is the operator's form of the local path above. |
 
+### test/bats/unit/coverage_workdir_isolation_spec.bats (1)
+
+`_coverage_parallel_workdir` reuses an exported COVERAGE_LOCAL_WORKDIR and
+keeps it. A spec that starts a nested driver inherits it, so the nested run
+wrote into the parent's work dir and truncated the parent's log-1 to 0
+bytes: a test damaging the evidence of the run it belongs to, with a result
+that depends on the caller's environment (base#1420). The nested specs must
+not inherit it.
+
+| Test | Description |
+|------|-------------|
+| `nested driver tests leave a caller-named COVERAGE_LOCAL_WORKDIR untouched (base#1420)` | the sentinel stands for the parent's evidence. Any write to the named dir, a truncated log-1 or a slice dir the nested run created, is the leak. |
+
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
 Covers the "regenerate this artifact" hints stamped into what the deploy
@@ -2741,7 +2763,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (75)
+### test/bats/unit/deploy_spec.bats (80)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2831,6 +2853,11 @@ refused before any build or bundle step.
 | `_setup_deploy: a refused stage writes no bundle even with -y (#841)` | guard fires before build |
 | `main deploy routes to _setup_deploy (#832 dispatch)` | dispatch wiring |
 | `_resolve_deploy_context: warns when the legacy [deploy] runtime key is present but shadowed (#876)` | - |
+| `_deploy_work_dir_safe: a child of TMPDIR is accepted (base#1661)` | guard accepts only a real child of the temp root |
+| `_deploy_work_dir_safe: an empty path is refused (base#1661)` | empty value must never reach rm |
+| `_deploy_work_dir_safe: the temp root itself is refused, with or without slashes (base#1661)` | the temp root itself is not a work dir |
+| `_deploy_work_dir_safe: a '..' segment is refused (base#1661)` | dot-dot escapes the root |
+| `_deploy_work_dir_safe: sibling prefix and relative paths are refused; trailing-slash TMPDIR works (base#1661)` | prefix must match on a path boundary and TMPDIR may end in '/' |
 | `_generate_deploy_bundle: errexit abort mid-build removes the work dir (base#1662)` | errexit abort is not a signal; a TERM-only trap would leak here |
 | `_generate_deploy_bundle: caller EXIT trap sees the original status after cleanup (base#1662)` | the caller's EXIT handler must still see the original status |
 | `_generate_deploy_bundle: caller EXIT trap that exits still runs after cleanup (base#1662)` | a caller handler that exits must not be able to skip the cleanup |
@@ -3247,7 +3274,7 @@ thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs (#604)` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append (#604)` | Trailing-newline guard |
 
-### test/bats/unit/drift_spec.bats (4)
+### test/bats/unit/drift_spec.bats (6)
 
 Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero paths
 when the conf hash or GPU detection changes against a cached `.env`.
@@ -3256,6 +3283,8 @@ when the conf hash or GPU detection changes against a cached `.env`.
 |------|-------------|
 | `_check_setup_drift no-op when .env missing` | - |
 | `_check_setup_drift silent when nothing changed` | - |
+| `_check_setup_drift warns and reports drift when grep has no -P (base#1644)` | - |
+| `_check_setup_drift stays silent with a grep that supports -P (base#1644)` | - |
 | `_check_setup_drift returns non-zero when conf hash changes` | - |
 | `_check_setup_drift returns non-zero when GPU detection changes` | - |
 
@@ -4520,6 +4549,20 @@ fixture tree, so it catches the defect however a future test builds its
 value, rather than scanning spec text for one way of building it. It
 replaces kcov_trace_volume_spec.bats.
 
+Record (base#1424): the removed kcov_trace_volume_spec.bats and the commits
+that added it (1a642270, df58906e, base#1408) say CI run 40470315196
+(coverage 7/12) "stopped about 64 KiB into" a 1 MiB line. That figure is not
+supported by the hosted job. In the log of job 122075689824 the longest line
+is 917,544 characters, and the last two are 610,344 and 688,157, none near
+65,536; whether the last one was cut short by the cancellation the log
+cannot say. The figure does match the local reproduction written up in the
+same commit (a stdout reader that stops on lines over 64 KiB, so every
+process blocks in pipe_write), and 65,536 is the pipe size the old scanner
+used as its threshold. No earlier source for "64 KiB" is in the repo,
+base#1400, base#1408, base#1414 or base#1426. So it is a local figure, and
+the hosted hang is established only by its timeout and the log gaps
+(base#1414).
+
 | Test | Description |
 |------|-------------|
 | `kcov shard fixture: the driver ran the four heavy specs concurrently and passed` | The shard must be concurrent and must finish green, or the two assertions below would compare a run that never raced, or nothing. The label is the driver's claim; the rendezvous is the proof -- all four specs were running at the same moment, so their slices overlapped. |
@@ -5333,6 +5376,16 @@ the outer run's value, which is the wrong mode's value.
 | `per-test timeout: the local compose run of the suite is wrapped in timeout, ci and coverage` | Locally there is no job bound at all: `just test` and `just test coverage` run the suite in `docker compose run --rm`, and a hang there blocks the terminal forever. The compose run goes through `timeout`, in both the ci and the coverage dispatch. |
 | `per-test timeout: the local compose run forwards PER_TEST_TIMEOUT, ci and coverage` | PER_TEST_TIMEOUT is the documented knob, but `just test` and `just test coverage` read it on the HOST while the driver that honours it runs inside `docker compose run`. A dispatch that does not forward it leaves the override silently ignored on the user-facing path, while the knob tests above, which call the driver directly, still pass (base#1413). |
 
+### test/bats/unit/pin_checksum_lint_spec.bats (5)
+
+| Test | Description |
+|------|-------------|
+| `_run_pin_coverage: FAILS on a test-tools github-release pin with no checksum ARG` | A github-release pin in test-tools with no checksum ARG is an unverified download; the lint must name the pin and the expected ARG |
+| `_run_pin_coverage: FAILS when a pending-allowlisted pin already has a checksum` | The pending allowlist is transitional; once a listed pin has its checksum the entry must be deleted, so the lint fails on a stale entry |
+| `_run_pin_coverage: FAILS on a pin with only the AMD64 checksum ARG` | Both per-arch ARGs are required; a pin with only one arch checked leaves the other arch's download unverified |
+| `_run_pin_coverage: FAILS on a pin with only the ARM64 checksum ARG` | The same rule from the other side, so an either-arch match fails |
+| `_run_pin_coverage: PASSES a pending-allowlisted pin that has no checksum ARG` | The pending allowlist is what keeps main green while a sibling issue lands its checksum; a listed pin with none must pass (fixture list: the real one is empty once every pin has its checksum) |
+
 ### test/bats/unit/pin_coverage_lint_spec.bats (81)
 
 | Test | Description |
@@ -5418,6 +5471,13 @@ the outer run's value, which is the wrong mode's value.
 | `_pin_uncovered: a _pin_read failure is its failure, not masked by the pipe (base#1463)` | _pin_uncovered took `_pin_read \| awk`'s status, and pipefail is off, so a reader failure was masked by awk's 0. |
 | `_run_pin_coverage: pin-coverage is in test.sh's _LINT_TOOLS table` | Membership in that table is what gives the lint a CI job; without it the lint would gate only a local run |
 | `_run_pin_coverage: --pin-coverage-only runs it host-direct` | The host-direct entry point is how a bump proposal's author checks coverage without building the image |
+
+### test/bats/unit/pr_template_spec.bats (2)
+
+| Test | Description |
+|------|-------------|
+| `the PR template file exists` | Without the file GitHub has nothing to auto-load, so authors lose the whole checklist |
+| `the PR template has every section heading` | A heading that is gone drops its checklist items from every new PR |
 
 ### test/bats/unit/pre_pr_mirror_parity_spec.bats (38)
 
@@ -6666,7 +6726,7 @@ alias / `network.network_name` / `devices.device_` / `security.cap_add_` /
 | `self-hosted guard: FAILS when the workflows parse to zero jobs` | - |
 | `self-hosted guard: scans every workflow in the directory, not a named list` | - |
 
-### test/bats/unit/self_test_yaml_spec.bats (158)
+### test/bats/unit/self_test_yaml_spec.bats (159)
 
 Structural assertions for `.github/workflows/self-test.yaml`. Locks fourteen
 cumulative invariants:
@@ -7101,6 +7161,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: the release upload attaches no hand-built asset (#924)` | - |
 | `self-test.yaml: the release body is assembled by a script that can refuse (#926)` | The extraction has to live somewhere a spec can drive it AND somewhere that can exit non-zero; inline in the workflow it was neither. This is what stops it drifting back into a `run:` block where a no-match is a silent success. |
 | `self-test.yaml: the release page carries the curated notes alone (#926)` | With both sources the larger drowns the smaller: the measured v0.42.0 body was 26,690 characters of which the curated part was five lines and the rest raw PR titles. The workflow input is the only place that choice is expressed, so it is the only place it can regress. |
+| `self-test.yaml: the release job verifies the tagged commit is on main before creating the Release (base#1712)` | The release job's needs: are test gates, which a green PR head also passes, so a v* tag pushed on a commit that is not on main would publish a Release. The base#1143 guard ran only in the reusable worker (release-worker.yaml); base's own tag path had none (base#1712). |
 | `self-test.yaml: declares bats-fragile job (#677)` | - |
 | `self-test.yaml: bats-fragile is a single job (no shard matrix) (#677)` | - |
 | `self-test.yaml: bats-fragile invokes test.sh --bats-fragile (#677)` | - |

@@ -1245,6 +1245,52 @@ SH
   rm -rf "${_d}"
 }
 
+# ════════════════════════════════════════════════════════════════════
+# _deploy_work_dir_safe -- the work-dir rm guard (base#1661)
+# ════════════════════════════════════════════════════════════════════
+
+# why: guard accepts only a real child of the temp root
+@test "_deploy_work_dir_safe: a child of TMPDIR is accepted (base#1661)" {
+  TMPDIR=/var/tmpx run _deploy_work_dir_safe /var/tmpx/deploy.abc
+  assert_success
+}
+
+# why: empty value must never reach rm
+@test "_deploy_work_dir_safe: an empty path is refused (base#1661)" {
+  TMPDIR=/var/tmpx run _deploy_work_dir_safe ""
+  assert_failure
+  TMPDIR=/var/tmpx run _deploy_work_dir_safe
+  assert_failure
+}
+
+# why: the temp root itself is not a work dir
+@test "_deploy_work_dir_safe: the temp root itself is refused, with or without slashes (base#1661)" {
+  local _p
+  for _p in /var/tmpx /var/tmpx/ /var/tmpx// ; do
+    TMPDIR=/var/tmpx run _deploy_work_dir_safe "${_p}"
+    assert_failure
+  done
+}
+
+# why: dot-dot escapes the root
+@test "_deploy_work_dir_safe: a '..' segment is refused (base#1661)" {
+  local _p
+  for _p in /var/tmpx/a/../b /var/tmpx/.. /var/tmpx/../etc ; do
+    TMPDIR=/var/tmpx run _deploy_work_dir_safe "${_p}"
+    assert_failure
+  done
+}
+
+# why: prefix must match on a path boundary and TMPDIR may end in '/'
+@test "_deploy_work_dir_safe: sibling prefix and relative paths are refused; trailing-slash TMPDIR works (base#1661)" {
+  TMPDIR=/var/tmpx run _deploy_work_dir_safe /var/tmpx-other/d
+  assert_failure
+  TMPDIR=/var/tmpx run _deploy_work_dir_safe relative/dir
+  assert_failure
+  TMPDIR=/var/tmpx/// run _deploy_work_dir_safe /var/tmpx/deploy.abc
+  assert_success
+}
+
 # base#1662 helper: run _generate_deploy_bundle in a child bash with an isolated
 # TMPDIR. $1 = repo dir, $2 = child preamble (traps, set -e, stubs).
 _run_deploy_child_1662() {
