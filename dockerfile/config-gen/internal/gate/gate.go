@@ -6,7 +6,9 @@
 // datetime whose offset hour is above 23 or offset minute above 59, which
 // BurntSushi v1.6.0 accepts and tomllib refuses (base#1851), and a key
 // path a document defines twice, which tomllib refuses and BurntSushi
-// v1.6.0 accepts in some forms (base#1851).
+// v1.6.0 accepts in some forms (base#1851), and the byte where the
+// structural reading stops because the TOML 1.0 grammar allows nothing
+// there (base#1851).
 package gate
 
 import (
@@ -17,6 +19,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Reason names why Check refused its input.
@@ -54,7 +57,18 @@ const (
 	// ReasonRedefine is a table header, or a dotted key, whose path names
 	// a table that a header or dotted keys already defined (base#1851).
 	ReasonRedefine
+	// ReasonSyntax is the byte where the structural reading stops because
+	// the TOML 1.0 grammar allows nothing there: a header with no closing
+	// bracket, a key with no `=`, a value missing, two values or pairs with
+	// no comma between them, a string left unclosed. It is the first byte
+	// the reading cannot go on from, and no rule after it decides the
+	// verdict (base#1851).
+	ReasonSyntax
 )
+
+// syntaxText is the text of a refusal where the structural reading
+// stops.
+const syntaxText = "invalid TOML 1.0 syntax"
 
 // bomPrefixes is the whole list of leading byte order marks the decoder
 // strips before it lexes (BurntSushi v1.6.0 parse.go, lines 47-51), each of
@@ -103,24 +117,59 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // token after `=` or an array's opening `[` that is a date-bearing value
 // with year 0000, or the sign of a datetime's offset whose hour is
 // above 23 or whose minute is above 59; or the first byte of a leading byte order mark. The same bytes in a comment, a literal string or a
-// multi-line literal are TOML 1.0 and are accepted. When none of those
-// is there, it refuses the first byte of the key or header that defines a
-// key path a second time (tables, base#1851).
+// multi-line literal are TOML 1.0 and are accepted. Where the structural
+// reading (tables) stops, the byte it stopped on is refused with
+// ReasonSyntax unless one of those bytes comes at or before it; nothing
+// after the stop decides the verdict. When none of those is there, it
+// refuses the first byte of the key or header that defines a key path a
+// second time (tables, base#1851).
 func Check(label string, src []byte) error {
 	for _, p := range bomPrefixes {
 		if bytes.HasPrefix(src, p) {
 			return refusal(label, src, 0, ReasonBOM, "leading byte order mark is not TOML 1.0")
 		}
 	}
+	t := newTables(label, src)
+	err := t.document()
+	var stop *Refusal
+	if errors.Is(err, errStop) {
+		err = nil
+		if !undecodable(src, t.i) {
+			// A stop at the end of the document names its last byte, so
+			// the position is always a byte of src.
+			stop = refusal(label, src, min(t.i, len(src)-1), ReasonSyntax, syntaxText)
+		}
+	}
 	var st scan
 	// A nil *Refusal must come back as a nil error, not a typed nil.
-	if r := read(label, src, &st); r != nil {
+	if r := read(label, src, &st); r != nil && (stop == nil || !before(stop, r)) {
 		return r
 	}
-	if err := newTables(label, src).document(); err != nil && !errors.Is(err, errStop) {
-		return err
+	if stop != nil {
+		return stop
 	}
-	return nil
+	return err
+}
+
+// undecodable reports whether offset i of src is a byte the decoder
+// refuses wherever it stands outside a string or comment: a control
+// character other than tab, LF or CR, or a byte that starts no valid
+// UTF-8 sequence. A stop on such a byte is left to the decoder
+// (base#1851).
+func undecodable(src []byte, i int) bool {
+	if i >= len(src) {
+		return false
+	}
+	if c := src[i]; c == 0x7F || (c < 0x20 && c != '\t' && c != '\n' && c != '\r') {
+		return true
+	}
+	r, n := utf8.DecodeRune(src[i:])
+	return r == utf8.RuneError && n == 1
+}
+
+// before reports whether a names an earlier byte than b.
+func before(a, b *Refusal) bool {
+	return a.Line < b.Line || (a.Line == b.Line && a.Col < b.Col)
 }
 
 // read walks src as tokens and the bytes between them, keeping st, and
@@ -189,10 +238,10 @@ func (st *scan) valueNext() bool {
 
 // structural reads src[from:to], bytes outside any token, keeping st,
 // and returns the refusal for the first line ending there whose
-// innermost open container is `{`, or for the first comma there
-// followed, after optional spaces or tabs, by the `}` that closes an
-// inline table, or for the first bare token there that is a time
-// without seconds, or for the first bare value token there that is a
+// innermost open container is `{`, or for the first comma there that
+// follows a pair and is followed, after optional spaces or tabs, by the
+// `}` that closes an inline table, or for the first bare token there
+// that is a time without seconds, or for the first bare value token there that is a
 // date-bearing value with year 0000, or for the offset sign of the
 // first bare token there whose offset hour is above 23 or offset minute
 // is above 59.
@@ -225,7 +274,11 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
 				j++
 			}
-			if n := len(st.open); n > 0 && st.open[n-1] == '{' && j < len(src) && src[j] == '}' {
+			// A comma right after the `{` or another comma follows no
+			// pair, so it is not a trailing comma; the structural reading
+			// stops there instead (base#1851).
+			trailing := st.last != '{' && st.last != ','
+			if n := len(st.open); trailing && n > 0 && st.open[n-1] == '{' && j < len(src) && src[j] == '}' {
 				return commaRefusal(label, src, i)
 			}
 			st.last = c

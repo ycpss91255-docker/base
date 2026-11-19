@@ -48,17 +48,14 @@ func (n *node) child(part string) *node {
 func (n *node) container() bool { return n.kind == nodeTable || n.kind == nodeAOT }
 
 // The token patterns the table pass reads with, each anchored at the
-// byte it reads from. A string is a multi-line basic or literal string
-// up to its first run of three to five closing quotes (TOML 1.0
-// ml-basic-body, ml-literal-body: one or two quotes of content may come
-// before the closing three), a basic string whose escapes are each read
-// as one unit, or a literal string. A bare value is a number, boolean,
-// date or time; a full date followed by a space and a digit takes the
-// space and the run after it too (a local or offset datetime with a
-// space delimiter).
+// byte it reads from. A key part is bare, a basic string whose escapes
+// are each read as one unit, or a literal string; a string value is
+// read by str. A bare value is a number, boolean, date or time; a full
+// date followed by a space and a digit takes the space and the run after
+// it too (a local or offset datetime with a space delimiter).
 var (
 	keyPartPattern = regexp.MustCompile(`^(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')`)
-	scalarPattern  = regexp.MustCompile(`^(?:"""(?s:[^\\]|\\.)*?"{3,5}|'''(?s:.)*?'{3,5}|"(?:[^"\\]|\\.)*"|'[^']*'|\d{4}-\d{2}-\d{2} \d[0-9A-Za-z_+.:-]*|[0-9A-Za-z_+.:-]+)`)
+	scalarPattern  = regexp.MustCompile(`^(?:\d{4}-\d{2}-\d{2} \d[0-9A-Za-z_+.:-]*|[0-9A-Za-z_+.:-]+)`)
 	blankPattern   = regexp.MustCompile(`^(?:[ \t]|#[^\n]*)*`)
 	linesPattern   = regexp.MustCompile(`^(?:[ \t\r\n]|#[^\n]*)*`)
 )
@@ -68,10 +65,9 @@ var (
 // defined, or a dotted-key table an earlier section made; nothing may
 // extend an inline table or an array value; a key may not name a path
 // that already exists. A break of one of these rules is refused at the
-// first byte of the key or header that breaks it. It reads a valid TOML
-// document exactly and checks no grammar of its own: where it finds no
-// key it stops with errStop, and a document it misreads is one the
-// decoder refuses anyway.
+// first byte of the key or header that breaks it. Where the TOML 1.0
+// grammar allows nothing at the byte it reads, it stops there with
+// errStop at that byte.
 type tables struct {
 	src   []byte
 	label string
@@ -84,8 +80,8 @@ type tables struct {
 	pending []*node
 }
 
-// errStop ends the pass where no key starts; Check then has no table
-// rule to refuse.
+// errStop ends the pass at t.i, a byte where the TOML 1.0 grammar allows
+// nothing; Check refuses that byte with ReasonSyntax (base#1851).
 var errStop = errors.New("gate: table pass stopped")
 
 // newTables returns a pass over src that starts at its first byte and
@@ -113,6 +109,11 @@ func (t *tables) document() error {
 		if err != nil {
 			return err
 		}
+		// A statement ends at a line ending or the end of src.
+		t.blank(blankPattern)
+		if c := t.peek(); c != 0 && c != '\n' && c != '\r' {
+			return errStop
+		}
 	}
 }
 
@@ -139,9 +140,12 @@ func (t *tables) header() (*node, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.eat("]")
+	closing := "]"
 	if aot {
-		t.eat("]")
+		closing = "]]"
+	}
+	if !t.eat(closing) {
+		return nil, errStop
 	}
 	return n, nil
 }
@@ -163,7 +167,10 @@ func (t *tables) pair(n *node, step func(n *node, part string, at int) (*node, e
 	if err != nil {
 		return err
 	}
-	t.eat("=")
+	t.blank(blankPattern)
+	if !t.eat("=") {
+		return errStop
+	}
 	n.kind, err = t.value()
 	return err
 }
@@ -257,9 +264,48 @@ func (t *tables) value() (byte, error) {
 		return nodeInline, t.inline()
 	case '[':
 		return nodeArray, t.array()
+	case '"', '\'':
+		return nodeScalar, t.str()
 	}
-	t.i += len(scalarPattern.Find(t.src[t.i:]))
+	m := scalarPattern.Find(t.src[t.i:])
+	if len(m) == 0 {
+		return 0, errStop // no value starts here
+	}
+	t.i += len(m)
 	return nodeScalar, nil
+}
+
+// str reads the string whose opening quote is at t.i (basic, literal, or
+// either multi-line form). It stops at the line ending that leaves a
+// one-line string unclosed, and at the end of src that leaves any string
+// unclosed.
+func (t *tables) str() error {
+	q := t.src[t.i]
+	delim := []byte{q}
+	if triple := []byte{q, q, q}; bytes.HasPrefix(t.src[t.i:], triple) {
+		delim = triple
+	}
+	t.i += len(delim)
+	for t.i < len(t.src) {
+		switch c := t.src[t.i]; {
+		case len(delim) == 1 && (c == '\n' || c == '\r'):
+			return errStop
+		case q == '"' && c == '\\':
+			t.i = min(t.i+2, len(t.src)) // an escape is read as one unit
+		case bytes.HasPrefix(t.src[t.i:], delim):
+			// Up to two quotes of content may come before a multi-line
+			// string's closing three.
+			n := len(delim)
+			for n < len(delim)+2*(len(delim)/3) && t.i+n < len(t.src) && t.src[t.i+n] == q {
+				n++
+			}
+			t.i += n
+			return nil
+		default:
+			t.i++
+		}
+	}
+	return errStop
 }
 
 // inline reads an inline table whose `{` is at t.i. Its keys are paths
@@ -277,9 +323,11 @@ func (t *tables) inline() error {
 			return err
 		}
 		t.blank(blankPattern)
-		if !t.eat(",") {
-			t.eat("}")
+		if t.eat("}") {
 			return nil
+		}
+		if !t.eat(",") {
+			return errStop
 		}
 	}
 }
@@ -296,9 +344,11 @@ func (t *tables) array() error {
 			return err
 		}
 		t.blank(linesPattern)
-		if !t.eat(",") {
-			t.eat("]")
+		if t.eat("]") {
 			return nil
+		}
+		if !t.eat(",") {
+			return errStop
 		}
 	}
 }
