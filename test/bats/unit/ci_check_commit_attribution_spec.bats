@@ -131,3 +131,19 @@ _run_pr() {
   assert_equal "${status}" 0
   assert_output --partial "no range"
 }
+
+# why: A pull request run whose base sha does not name a commit in the clone
+# has no range git can walk. A check that walked `git rev-list` without
+# verifying the shas would see an empty list and pass, so this pins a
+# non-zero exit for a pull_request event whose BASE_SHA does not resolve
+# (base#1989).
+@test "check_commit_attribution.sh: a pull_request event whose base sha does not resolve fails (base#1989)" {
+  cd "${REPO}" || return 1
+  export EVENT_NAME=pull_request
+  export BASE_SHA="0123456789abcdef0123456789abcdef01234567"
+  HEAD_SHA="$(git rev-parse HEAD)"
+  export HEAD_SHA
+
+  run bash "${CHECK}"
+  assert_not_equal "${status}" 0
+}
