@@ -625,6 +625,25 @@ _digest_of() {
   true
 }
 
+# why: The fuzz gate (base#1850) prints config_gen_gate_fuzz_failed when a
+# search finds a failing input, and the runner re-emits it through the
+# strict logger, which refuses a body log-events.txt does not carry. An
+# unregistered id would turn the fuzz gate's red into the logger's FATAL,
+# so the redpath and CI would never read gate=fuzz.
+@test "config_gen_gates.sh: a red fuzz gate re-emits config_gen_gate_fuzz_failed gate=fuzz through the logger (base#1850)" {
+  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
+  _root
+  _stub_docker
+  { _gate_log fmt vet lint race coverage; printf '#13 61.02 config_gen_gate_fuzz_failed\n'; } > "${S}/build_test.err"
+  printf '1\n' > "${S}/build_test.rc"
+  _run_runner
+  assert_equal "${status}" 1
+  [[ "${stderr}" != *"unregistered log body"* ]] || fail "unregistered log body: ${stderr}"
+  assert_logged_event config_gen_gate_fuzz_failed gate=fuzz
+  assert_line 'gate=coverage ok'
+  refute_line 'gate=fuzz ok'
+}
+
 # why: A coverage RUN that never got the corpus root record refuses with
 # reason=corpus_root_missing and an empty pkg (base#1468). The runner must
 # name the coverage gate from that printed refusal line, not from the RUN
