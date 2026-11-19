@@ -12,6 +12,11 @@
 # docker is stubbed here (there is no socket in the test-tools container);
 # `just test go` runs the real image.
 #
+# setup() plants a valid baseline, one `a = 1` file in each input root
+# (forms/a.toml, toml-test/valid/a.toml and the shared corpus's
+# s1/a.toml), so every test starts from inputs the step accepts; a test
+# that needs a root gone takes it away with _unplant (base#1851).
+#
 # The stub records each call's argv as ${S}/docker.<n>.argv. `docker
 # image inspect` exits with ${S}/inspect.rc and `docker build` with
 # ${S}/build.rc when those exist, 0 otherwise. For `docker run` it saves
@@ -37,7 +42,8 @@ setup() {
   STEP_SRC=/source/script/test/config_gen_steps/10-toml-oracle.sh
   S="${BATS_TEST_TMPDIR}"
   R="${S}/root"
-  G="${R}/dockerfile/config-gen/internal/gate/testdata"
+  M="${R}/dockerfile/config-gen"
+  G="${M}/internal/gate/testdata"
   mkdir -p "${S}/bin" "${S}/ctx" "${R}/script/test" "${R}/dist/script/docker" \
            "${R}/dockerfile/config-gen"
   cp /source/.version "${R}/"
@@ -107,6 +113,21 @@ esac
 exit 0
 EOF
   chmod +x "${S}/bin/docker"
+  : > "${S}/planted"
+  _plant forms/a.toml toml-test/valid/a.toml
+  _put 'a = 1' testdata/corpus/s1/a.toml
+}
+
+# _put <content> <module-rel> -- a file holding <content> at <module-rel>
+# under dockerfile/config-gen, recorded in the ledger ${S}/planted as
+# `<module-rel>\t<content>`. A path planted again replaces its entry, so
+# the ledger describes the final tree.
+_put() {
+  mkdir -p "$(dirname -- "${M}/${2}")"
+  printf '%s\n' "${1}" > "${M}/${2}"
+  awk -F'\t' -v rel="${2}" '$1 != rel' "${S}/planted" > "${S}/planted.new"
+  printf '%s\t%s\n' "${2}" "${1}" >> "${S}/planted.new"
+  mv -- "${S}/planted.new" "${S}/planted"
 }
 
 # _plant <rel>... -- a TOML file `a = 1` at each <rel> under the gate's
@@ -121,16 +142,35 @@ _plant() {
 # _plant_as <content> <rel> -- a file holding <content> at <rel> under the
 # gate's testdata; the stand-in python3 answers by that content.
 _plant_as() {
-  mkdir -p "$(dirname -- "${G}/${2}")"
-  printf '%s\n' "${1}" > "${G}/${2}"
+  _put "${1}" "internal/gate/testdata/${2}"
 }
 
-# _digest <rel> -- the SHA-256 of the planted file at <rel>, as
-# sha256sum prints it.
-_digest() {
-  local _d
-  _d="$(sha256sum < "${G}/${1}")"
-  printf '%s\n' "${_d%% *}"
+# _unplant <module-rel> -- remove the file or directory at <module-rel>
+# and drop the ledger's entries at or under it.
+_unplant() {
+  rm -rf -- "${M:?}/${1}"
+  awk -F'\t' -v rel="${1}" '$1 != rel && index($1, rel "/") != 1' \
+    "${S}/planted" > "${S}/planted.new"
+  mv -- "${S}/planted.new" "${S}/planted"
+}
+
+# _answer -- the full valid answer for what the ledger says is planted:
+# one `<module-rel>\t<verdict>\t<sha256>` row per file, in C order. The
+# verdict comes from the planted content (`a = 1` is accept, `refuse` is
+# refuse) and the digest is sha256sum's of the planted bytes. It reads the
+# ledger, never the tree, so it does not recompute the step's own `find`.
+# A malformed answer is _answer through one named edit.
+_answer() {
+  local _rel _content _verdict _d
+  while IFS=$'\t' read -r _rel _content; do
+    case "${_content}" in
+      'a = 1') _verdict=accept ;;
+      refuse) _verdict=refuse ;;
+      *) fail "_answer: no verdict for the content planted at ${_rel}" ;;
+    esac
+    _d="$(sha256sum < "${M}/${_rel}")"
+    printf '%s\t%s\t%s\n' "${_rel}" "${_verdict}" "${_d%% *}"
+  done < <(LC_ALL=C sort -t$'\t' -k1,1 -- "${S}/planted")
 }
 
 # _oracle [<VAR=value>...] -- the step on the scratch root, docker
@@ -157,7 +197,8 @@ _run_calls() {
 # else -- a LICENSE, SOURCE or golden file is not TOML, and a TOML file
 # outside corpus/s*/ is not corpus. The order is the C locale's, so an
 # upper-case name sorts before a lower-case one whatever the caller's
-# locale is. The expected list is written out, not re-derived.
+# locale is. The expected list is written out, not re-derived; it holds
+# setup()'s three baseline files too.
 @test "10-toml-oracle.sh: the container receives exactly the forms, toml-test and shared corpus TOML files, in C-locale order (base#1851)" {
   assert_spec_subject "${STEP_SRC}" "the tomllib oracle step (base#1851)"
   _plant forms/b.toml forms/Z.toml forms/sub/a.toml \
@@ -177,10 +218,13 @@ _run_calls() {
   local _want _got
   _want="$(printf '%s\n' \
     internal/gate/testdata/forms/Z.toml \
+    internal/gate/testdata/forms/a.toml \
     internal/gate/testdata/forms/b.toml \
     internal/gate/testdata/forms/sub/a.toml \
     internal/gate/testdata/toml-test/invalid/datetime/y.toml \
+    internal/gate/testdata/toml-test/valid/a.toml \
     internal/gate/testdata/toml-test/valid/x.toml \
+    testdata/corpus/s1/a.toml \
     testdata/corpus/s1/seed.toml \
     testdata/corpus/s9/x.toml)"
   _got="$(tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/$/d')"
@@ -191,26 +235,20 @@ _run_calls() {
 # what the container answered must reach the build as it was, neither
 # re-sorted nor rewritten, and its calibration lines left out. Each row
 # carries the SHA-256 of the bytes the oracle program read, which the
-# differential test checks against the file (review round 2, base#1851);
-# the expected digests are sha256sum's of the planted files. Here the
-# container's own loop runs with a stand-in interpreter that refuses two
-# of the four files, one under forms and one under toml-test, so a step
-# that writes `accept` for every file, or drops the refused rows, gives a
-# different file. The expected TSV is written out (review round 1,
-# base#1851).
+# differential test checks against the file (review round 2, base#1851).
+# Here the container's own loop runs with a stand-in interpreter that
+# refuses two of the files, one under forms and one under toml-test, so a
+# step that writes `accept` for every file, or drops the refused rows,
+# gives a different file. The expected TSV is _answer's, built from what
+# was planted and sha256sum's digests of it, not from the step's output.
 @test "10-toml-oracle.sh: verdicts.tsv is the container's mixed accept and refuse answer byte for byte, calibration lines left out (base#1851)" {
-  _plant forms/a.toml toml-test/valid/d.toml
+  _plant toml-test/valid/d.toml
   _plant_as refuse forms/b.toml
   _plant_as refuse toml-test/invalid/c.toml
   _oracle
   assert_success
   assert_output ''
-  printf '%s\t%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept "$(_digest forms/a.toml)" \
-    internal/gate/testdata/forms/b.toml refuse "$(_digest forms/b.toml)" \
-    internal/gate/testdata/toml-test/invalid/c.toml refuse "$(_digest toml-test/invalid/c.toml)" \
-    internal/gate/testdata/toml-test/valid/d.toml accept "$(_digest toml-test/valid/d.toml)" \
-    > "${S}/want.tsv"
+  _answer > "${S}/want.tsv"
   cmp -- "${S}/want.tsv" "${S}/ctx/toml-oracle/verdicts.tsv" \
     || fail "verdicts.tsv: $(cat -A -- "${S}/ctx/toml-oracle/verdicts.tsv")"
 }
@@ -223,7 +261,6 @@ _run_calls() {
 # `toml-bridge:<12 hex>` tag, and a TOML_BRIDGE_IMAGE in the environment
 # must not reach the run (review round 1, base#1851).
 @test "10-toml-oracle.sh: the container is the pinned toml-bridge image tool_image_derive names, whatever TOML_BRIDGE_IMAGE says (base#1851)" {
-  _plant forms/a.toml
   local _want
   _want="$(source "${R}/dist/script/docker/lib/toml_bridge.sh" && tool_image_derive toml_bridge)"
   [[ "${_want}" =~ ^toml-bridge:[0-9a-f]{12}$ ]] \
@@ -247,7 +284,6 @@ _run_calls() {
 # stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/
 # directory left for the build to read as an answer.
 @test "10-toml-oracle.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml
   printf '1\n' > "${S}/run.rc"
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=image
@@ -263,7 +299,6 @@ _run_calls() {
 # config_gen_toml_oracle_failed reason=image, no `docker run`, and no
 # toml-oracle/ directory (review round 1, base#1851).
 @test "10-toml-oracle.sh: an image that cannot be provisioned is config_gen_toml_oracle_failed reason=image, no docker run, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml
   printf '1\n' > "${S}/inspect.rc"
   printf '1\n' > "${S}/build.rc"
   _oracle
@@ -282,7 +317,6 @@ _run_calls() {
 # nothing on stdout, config_gen_toml_oracle_failed reason=image, and no
 # toml-oracle/ directory (review round 1, base#1851).
 @test "10-toml-oracle.sh: an interpreter killed inside the container is config_gen_toml_oracle_failed reason=image, never a refuse verdict (base#1851)" {
-  _plant forms/a.toml
   _plant_as die forms/b.toml
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=image
@@ -306,10 +340,9 @@ _run_calls() {
 # five-point refusal test: status 1, nothing on stdout,
 # config_gen_toml_oracle_failed reason=image, and no toml-oracle/
 # directory. forms/c.toml, refused by both with the same line, is the
-# control: alone with forms/a.toml it calibrates and passes (review
+# control: alone with the baseline it calibrates and passes (review
 # round 2, base#1851).
 @test "10-toml-oracle.sh: a bridge that exits 1 on a refused file without tomllib's refusal is config_gen_toml_oracle_failed reason=image, never a calibrated refuse (base#1851)" {
-  _plant forms/a.toml
   _plant_as refuse forms/c.toml
   _oracle
   assert_success
@@ -322,17 +355,15 @@ _run_calls() {
 
 # why: The differential test compares a verdict for every file it was
 # handed. An answer with fewer rows than the files in the tar -- here
-# three files planted and the container answers for two -- leaves a file
-# with no tomllib verdict, and a short TSV must not reach the build as if
-# it were complete. The step must refuse under the five-point refusal
-# test: status 1, nothing on stdout, config_gen_toml_oracle_failed
-# reason=count, and no toml-oracle/ directory left behind.
+# _answer with its first row dropped -- leaves a file with no tomllib
+# verdict, and a short TSV must not reach the build as if it were
+# complete. The step must refuse under the five-point refusal test:
+# status 1, nothing on stdout, config_gen_toml_oracle_failed reason=count,
+# and no toml-oracle/ directory left behind.
 @test "10-toml-oracle.sh: an answer missing a row is config_gen_toml_oracle_failed reason=count, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
-  printf '%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept \
-    internal/gate/testdata/toml-test/invalid/c.toml refuse \
-    > "${S}/answers"
+  _plant forms/b.toml
+  _plant_as refuse toml-test/invalid/c.toml
+  _answer | sed '1d' > "${S}/answers"
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=count
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
@@ -341,29 +372,29 @@ _run_calls() {
 
 # why: The differential test reads each row's second field as tomllib's
 # verdict, and only `accept` and `refuse` are verdicts. An answer with the
-# right number of rows whose middle row says `maybe` is not something
+# right number of rows whose second row says `maybe` is not something
 # tomllib said about that file, and it must not reach the build. Nor may a
 # row whose third field is not a SHA-256 -- 63 hex digits, a capital hex
 # digit, nothing at all, or a fourth field after it: the differential
 # test binds each verdict to the file by that digest (review round 2,
-# base#1851). Each is refused under the five-point refusal test: status 1,
-# nothing on stdout, config_gen_toml_oracle_failed reason=token, and no
-# toml-oracle/ directory left behind.
+# base#1851). Each is _answer with that one edit to its second row, and
+# each is refused under the five-point refusal test: status 1, nothing on
+# stdout, config_gen_toml_oracle_failed reason=token, and no toml-oracle/
+# directory left behind.
 @test "10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse, or whose digest is not a SHA-256, is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
-  local _d _bad
-  _d="$(_digest forms/a.toml)"
-  for _bad in "maybe\t${_d}" "accept\t${_d:1}" "accept\t${_d:1}A" 'accept' \
-              "accept\t${_d}\textra"; do
-    printf "%s\t%s\t%s\n%s\t${_bad}\n%s\t%s\t%s\n" \
-      internal/gate/testdata/forms/a.toml accept "${_d}" \
-      internal/gate/testdata/forms/b.toml \
-      internal/gate/testdata/toml-test/invalid/c.toml refuse "${_d}" \
-      > "${S}/answers"
+  _plant forms/b.toml
+  _plant_as refuse toml-test/invalid/c.toml
+  local _edit
+  for _edit in 's/\t(accept|refuse)\t/\tmaybe\t/' \
+               's/\t[0-9a-f]([0-9a-f]{63})$/\t\1/' \
+               's/\t[0-9a-f]([0-9a-f]{63})$/\t\1A/' \
+               's/\t[0-9a-f]{64}$//' \
+               's/$/\textra/'; do
+    _answer | sed -E "2${_edit}" > "${S}/answers"
     _oracle
     assert_refusal 1 config_gen_toml_oracle_failed reason=token
     [[ ! -e "${S}/ctx/toml-oracle" ]] \
-      || fail "a refused oracle run left ${S}/ctx/toml-oracle behind (${_bad})"
+      || fail "a refused oracle run left ${S}/ctx/toml-oracle behind (${_edit})"
   done
 }
 
@@ -379,7 +410,7 @@ _run_calls() {
 # status 1, nothing on stdout, config_gen_toml_oracle_failed
 # reason=calibration naming the file, and no toml-oracle/ directory left.
 @test "10-toml-oracle.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml toml-test/valid/b.toml
+  _plant toml-test/valid/b.toml
   _plant_as bridge-refuse forms/x.toml
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=calibration \
@@ -389,18 +420,16 @@ _run_calls() {
 }
 
 # why: Calibration holds only if it ran. An answer with every verdict row
-# but no calibration line for a forms file -- here the container answered
-# none -- has compared nothing, and must not pass as calibrated. Nor may a
-# run with no forms file at all, where there is nothing to calibrate
-# with. Each is refused under the five-point refusal test: status 1,
-# nothing on stdout, config_gen_toml_oracle_failed reason=calibration,
-# and no toml-oracle/ directory left (review round 1, base#1851).
+# -- _answer's, for every planted file -- but no calibration line for a
+# forms file, here forms/b.toml, has compared nothing for it, and must
+# not pass as calibrated. Nor may a run with no forms file at all, where
+# there is nothing to calibrate with. Each is refused under the
+# five-point refusal test: status 1, nothing on stdout,
+# config_gen_toml_oracle_failed reason=calibration, and no toml-oracle/
+# directory left (review round 1, base#1851).
 @test "10-toml-oracle.sh: an answer that calibrates fewer than every forms file, or none, is config_gen_toml_oracle_failed reason=calibration (base#1851)" {
-  _plant forms/a.toml forms/b.toml
-  printf '%s\t%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept "$(_digest forms/a.toml)" \
-    internal/gate/testdata/forms/b.toml accept "$(_digest forms/b.toml)" \
-    > "${S}/answers"
+  _plant forms/b.toml
+  _answer > "${S}/answers"
   printf 'calibration\t%s\t%s\n' \
     internal/gate/testdata/forms/a.toml accept \
     >> "${S}/answers"
@@ -408,8 +437,8 @@ _run_calls() {
   assert_refusal 1 config_gen_toml_oracle_failed reason=calibration
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
-  rm -rf -- "${G}/forms" "${S}/answers"
-  _plant toml-test/valid/c.toml
+  _unplant internal/gate/testdata/forms
+  rm -f -- "${S}/answers"
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=calibration
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
@@ -426,7 +455,7 @@ _run_calls() {
 # reason=name naming the file, no `docker run`, and no toml-oracle/
 # directory left.
 @test "10-toml-oracle.sh: a file name outside [A-Za-z0-9._/-] is config_gen_toml_oracle_failed reason=name before any docker run, no toml-oracle/ left (base#1851)" {
-  _plant forms/a.toml 'forms/a b.toml'
+  _plant 'forms/a b.toml'
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=name \
     'file=internal/gate/testdata/forms/a b.toml'
