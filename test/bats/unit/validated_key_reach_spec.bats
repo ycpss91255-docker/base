@@ -599,15 +599,18 @@ _reach_check_part() {
 # why: base#2003 -- a part whose field selection fails, or selects
 # nothing, has checked nothing, so it has to fail rather than report a
 # pass over zero fields. The selection's last stage is replaced here by
-# one that fails and by one that prints nothing.
+# one that prints a valid field and then fails -- so only its exit status
+# can fail the part -- and by one that prints nothing.
 @test "a reach part fails when its field selection fails or selects nothing (base#2003)" {
   local _t='every deploy-context field can change the generated bundle compose, or is a declared exemption, part 1 of 4 (base#1094)'
-  _reach_part_of() { return 1; }
+  _reach_part_of() { head -n 1; return 1; }
   BATS_TEST_DESCRIPTION="${_t}" run _reach_check_part
   assert_failure
+  assert_output --partial 'selecting reach part 0 failed'
   _reach_part_of() { :; }
   BATS_TEST_DESCRIPTION="${_t}" run _reach_check_part
   assert_failure
+  assert_output --partial 'reach part 0 selected no field'
 }
 
 # why: base#1094 -- an exemption is a claim about where the value goes,
