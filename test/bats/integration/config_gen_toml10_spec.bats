@@ -21,8 +21,12 @@
 # oracle program answers `<verdict>\t<sha256 of its stdin>`, as the real
 # one does, by a planted file's content: `refuse` is refused by the oracle
 # program and by the bridge, `bridge-refuse` only by the bridge, `die`
-# kills the oracle program's interpreter and `bridge-die` the bridge's;
-# anything else is accepted. When ${S}/answers exists the stub prints that
+# kills the oracle program's interpreter and `bridge-die` the bridge's,
+# and `bridge-crash` is refused by the oracle program while the bridge
+# exits 1 with a traceback; anything else is accepted. A refusing oracle
+# program writes `toml-bridge: refused` to the path it is handed as its
+# argument, and a refusing bridge prints that line on stderr and exits 1,
+# the bridge's own refusal shape. When ${S}/answers exists the stub prints that
 # file instead, byte for byte. When ${S}/run.rc exists, `docker run` then
 # exits with the status it holds.
 
@@ -52,14 +56,21 @@ if [[ "\${2:-}" == -c ]]; then
   d="\$(sha256sum < "\${in}")"
   case "\${c}" in
     die) kill -9 \$\$ ;;
-    refuse) printf 'refuse\t%s\n' "\${d%% *}" ;;
+    refuse | bridge-crash)
+      [[ -z "\${4:-}" ]] || printf 'toml-bridge: refused\n' > "\${4}"
+      printf 'refuse\t%s\n' "\${d%% *}" ;;
     *) printf 'accept\t%s\n' "\${d%% *}" ;;
   esac
   exit 0
 fi
 case "\${c}" in
   bridge-die) kill -9 \$\$ ;;
-  refuse | bridge-refuse) exit 1 ;;
+  bridge-crash)
+    printf 'Traceback (most recent call last):\nMemoryError\n' >&2
+    exit 1 ;;
+  refuse | bridge-refuse)
+    printf 'toml-bridge: refused\n' >&2
+    exit 1 ;;
 esac
 exit 0
 EOF
@@ -278,6 +289,31 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
   _plant_as bridge-die forms/b.toml
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=image
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
+
+# why: The bridge exits 1 both when tomllib refuses the file and when it
+# fails for any other reason -- an uncaught exception's traceback exits 1
+# too. On a file the oracle program refused, an exit 1 is the bridge's
+# refusal only if what it printed is tomllib's refusal of that file, the
+# `toml-bridge: <error>` line the oracle program recorded; otherwise the
+# calibration would agree with a refuse it never measured. Here the
+# oracle program refuses forms/b.toml and the bridge exits 1 on it with a
+# traceback. The container must fail, and the step must refuse under the
+# five-point refusal test: status 1, nothing on stdout,
+# config_gen_toml_oracle_failed reason=image, and no toml-oracle/
+# directory. forms/c.toml, refused by both with the same line, is the
+# control: alone with forms/a.toml it calibrates and passes (review
+# round 2, base#1851).
+@test "10-toml-oracle.sh: a bridge that exits 1 on a refused file without tomllib's refusal is config_gen_toml_oracle_failed reason=image, never a calibrated refuse (base#1851)" {
+  _plant forms/a.toml
+  _plant_as refuse forms/c.toml
+  _oracle
+  assert_success
+  _plant_as bridge-crash forms/b.toml
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=image
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
