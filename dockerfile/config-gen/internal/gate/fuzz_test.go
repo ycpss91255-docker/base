@@ -59,6 +59,7 @@ func FuzzCheck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, src []byte) {
 		suffixProperty(t, src)
 		prefixProperty(t, src)
+		commaWhitespaceProperty(t, src)
 		err := Check("f.toml", src)
 		if again := Check("f.toml", src); errString(err) != errString(again) {
 			t.Fatalf("Check gave %q, then %q", errString(err), errString(again))
@@ -77,12 +78,14 @@ func FuzzCheck(f *testing.F) {
 
 // forbiddenSuffixes are one statement each of the refused forms that
 // BurntSushi v1.6.0 accepts on its own: a `\e` escape, an inline table's
-// trailing comma and a line ending inside an inline table (base#1850).
+// trailing comma (after no whitespace and after a tab) and a line ending
+// inside an inline table (base#1850).
 // Each starts with a line ending, so it opens a new statement after any
 // input that ends outside a string.
 var forbiddenSuffixes = []string{
 	"\nzz = \"\\e\"\n",
 	"\nzz = {x = 1,}\n",
+	"\nzz = {x = 1,\t}\n",
 	"\nzz = {\nx = 1}\n",
 }
 
@@ -142,6 +145,25 @@ func prefixProperty(t *testing.T, src []byte) {
 		if err := Check("f.toml", doc); !errors.As(err, &r) || r.Line != 1 || r.Col != 1 || r.Reason != ReasonBOM {
 			t.Fatalf("Check(%q) = %v, want a ReasonBOM refusal at 1:1", doc, err)
 		}
+	}
+}
+
+// commaWhitespaceProperty builds a run w of spaces and tabs from src's
+// first (up to four) bytes, a space for an even byte and a tab for an odd
+// one, and requires `a = {b = 1,` w `}` to be a ReasonInlineTrailingComma
+// refusal at the comma, 1:11: TOML 1.0 whitespace is any run of the two
+// (base#1850), so a gate that skips only one of them, or only one byte,
+// fails on some input.
+func commaWhitespaceProperty(t *testing.T, src []byte) {
+	t.Helper()
+	w := make([]byte, 0, 4)
+	for _, b := range src[:min(len(src), 4)] {
+		w = append(w, " \t"[b%2])
+	}
+	doc := "a = {b = 1," + string(w) + "}\n"
+	var r *Refusal
+	if err := Check("f.toml", []byte(doc)); !errors.As(err, &r) || r.Line != 1 || r.Col != 11 || r.Reason != ReasonInlineTrailingComma {
+		t.Fatalf("Check(%q) = %v, want a ReasonInlineTrailingComma refusal at 1:11", doc, err)
 	}
 }
 
