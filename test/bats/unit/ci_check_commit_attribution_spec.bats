@@ -266,3 +266,43 @@ _run_pr() {
   assert_output --partial "::error::commit ${_first}: noreply address in message"
   assert_output --partial "::error::commit ${_second}: attribution marker in message"
 }
+
+# _run_mg: run the check over BASE..HEAD as a merge_group event.
+_run_mg() {
+  cd "${REPO}" || return 1
+  export EVENT_NAME=merge_group
+  export BASE_SHA="${BASE}"
+  HEAD_SHA="$(git rev-parse HEAD)"
+  export HEAD_SHA
+  run bash "${CHECK}"
+}
+
+# why: The merge queue runs the check too, over its own base_sha..head_sha
+# range. A check that walked a range for pull_request alone would give every
+# merge_group run the no-range notice and pass, so a merge_group range that
+# holds an offender must exit 1 and name the sha (base#1989).
+@test "check_commit_attribution.sh: a merge_group range with an offender fails and names the sha (base#1989)" {
+  _commit "fix: clean"
+  _commit "$(printf 'feat: x\n\n%s: %s X <%s>' "$(_cab)" "$(_model)" "$(_addr)")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_mg
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+}
+
+# why: A merge_group run walks its range rather than passing on the no-range
+# notice. A clean merge_group range must exit 0 with the walked commit count
+# and no notice, so a check that skipped merge_group cannot pass it
+# (base#1989).
+@test "check_commit_attribution.sh: a clean merge_group range passes with the commit count (base#1989)" {
+  _commit "feat: x"
+  _commit "fix: y"
+
+  _run_mg
+  assert_equal "${status}" 0
+  refute_output --partial "::error::"
+  refute_output --partial "no range to check"
+  assert_output --partial "no AI attribution in 2 commit(s)"
+}

@@ -1195,7 +1195,7 @@ fail on the next formatting change for a reason none of them is about.
 | `_check_test_md_drift: counts a shipped smoke spec as spec files (#848)` | - |
 | `_check_test_md_drift: FAILS when a row is deleted from the generated region (#859)` | The rot this closes: the heading count was regenerated -- so the gate said in sync -- while the per-test table next to it stayed short, 36 rows against 43 tests. The region is generated wholesale now, so a hand-edited row IS drift, and the gate names it. |
 
-### test/bats/unit/ci_check_commit_attribution_spec.bats (15)
+### test/bats/unit/ci_check_commit_attribution_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -1214,6 +1214,8 @@ fail on the next formatting change for a reason none of them is about.
 | `check_commit_attribution.sh: a folded trailer with the noreply address on the next line fails (base#1989)` | The same fold can put the noreply address on the continuation line. A check that matched a trailer as one `key: name <address>` line would miss it, so this pins exit 1 for a folded trailer whose address sits on the next line (base#1989). |
 | `check_commit_attribution.sh: an offender at the base sha with clean commits after it passes (base#1989)` | main already holds attributed commits the check must not re-judge. A check that walked HEAD's whole history would fail on an offender at or below BASE_SHA, so a range whose only offender is the base commit itself must exit 0 (base#1989). |
 | `check_commit_attribution.sh: two offending commits in one range are both listed (base#1989)` | The output has to list every offending commit, not the first one. A check that exited on its first hit would name only one of two offenders, so this pins both shas with their marker labels in one range (base#1989). |
+| `check_commit_attribution.sh: a merge_group range with an offender fails and names the sha (base#1989)` | The merge queue runs the check too, over its own base_sha..head_sha range. A check that walked a range for pull_request alone would give every merge_group run the no-range notice and pass, so a merge_group range that holds an offender must exit 1 and name the sha (base#1989). |
+| `check_commit_attribution.sh: a clean merge_group range passes with the commit count (base#1989)` | A merge_group run walks its range rather than passing on the no-range notice. A clean merge_group range must exit 0 with the walked commit count and no notice, so a check that skipped merge_group cannot pass it (base#1989). |
 
 ### test/bats/unit/ci_install_just_spec.bats (2)
 
