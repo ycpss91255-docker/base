@@ -19,3 +19,15 @@ var timePattern = regexp.MustCompile(`^(?:\d{4}-\d{2}-\d{2}[Tt ])?\d{2}:\d{2}(?:
 func dateRule(tok []byte) bool {
 	return timePattern.Match(tok)
 }
+
+// yearZeroPattern matches a token that starts with a full date (YYYY-MM-DD)
+// whose year is 0000.
+var yearZeroPattern = regexp.MustCompile(`^0000-\d{2}-\d{2}`)
+
+// yearZero reports whether tok, a bare value token, is a date-bearing
+// value whose year is 0000, which tomllib refuses (it builds a
+// datetime.date, whose range starts at year 1) and BurntSushi v1.6.0
+// accepts (base#1851).
+func yearZero(tok []byte) bool {
+	return yearZeroPattern.Match(tok)
+}
