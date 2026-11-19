@@ -1755,7 +1755,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1771,11 +1771,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -3687,7 +3687,7 @@ _lint_probe_fixture() {
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -3757,6 +3757,26 @@ _lint_probe_fixture() {
   assert_success
   assert_output --partial 'generate_release_notes: false'
   refute_output --partial 'generate_release_notes: true'
+}
+
+# why: The release job's needs: are test gates, which a green PR head also
+# passes, so a v* tag pushed on a commit that is not on main would publish
+# a Release. The base#1143 guard ran only in the reusable worker
+# (release-worker.yaml); base's own tag path had none (base#1712).
+@test "self-test.yaml: the release job verifies the tagged commit is on main before creating the Release (base#1712)" {
+  # Parsed YAML, not a text grep, so a comment naming the script cannot
+  # satisfy it. The script path and the refspec are the literals of the
+  # worker's verify step; the release step is found by its action name.
+  local _verify _publish _run
+  _verify="$(yq '.jobs.release.steps | to_entries | .[] | select((.value.run // "") | test("script/ci/verify-tag-on-main\\.sh")) | .key' "${WF}" | head -n 1)"
+  _publish="$(yq '.jobs.release.steps | to_entries | .[] | select((.value.uses // "") | test("^softprops/action-gh-release@")) | .key' "${WF}" | head -n 1)"
+  [ -n "${_publish}" ] || fail "no softprops/action-gh-release step in the release job"
+  [ -n "${_verify}" ] || fail "no release step runs script/ci/verify-tag-on-main.sh"
+  _run="$(LP_I="${_verify}" yq '.jobs.release.steps[env(LP_I)].run' "${WF}")"
+  [[ "${_run}" == *'+refs/heads/main:refs/remotes/origin/main'* ]] \
+    || fail "the verify step does not fetch main first:"$'\n'"${_run}"
+  (( _verify < _publish )) \
+    || fail "the verify step (${_verify}) runs after Create GitHub Release (${_publish})"
 }
 
 # ── bats-unit + bats-integration + coverage jobs ───────────────
@@ -5012,4 +5032,24 @@ YAML
     || fail "the fixture's || true step did not mask the red, so this case shows nothing"
   run _lint_probe_gating_errors "${_probe}" "${_fx}" skipped roster
   assert_output --partial 'skipped: step 0'
+}
+
+# why: Branch protection requires ci-rollup alone. A single-issue-pr job
+# outside its needs would be a check nobody is blocked by, and a
+# select_single_issue_pr key would let classify skip it on a doc-only PR,
+# which is exactly where a bundled PR slips through (base#1629).
+@test "self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)" {
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_success
+  assert_line single-issue-pr
+  run ! grep -q 'select_single_issue_pr' "${WF}"
+}
+
+# why: needs: alone only orders the job. A single-issue-pr job whose step
+# stopped invoking the script would stay green on every PR and gate nothing,
+# so the job body itself must run the script (base#1629).
+@test "self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)" {
+  run yaml_job_lines "${WF}" single-issue-pr
+  assert_success
+  assert_output --partial 'bash script/ci/single_issue_pr.sh'
 }

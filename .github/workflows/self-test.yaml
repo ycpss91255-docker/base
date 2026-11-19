@@ -1036,6 +1036,52 @@ jobs:
         continue-on-error: true
         run: ./script/ci/reclaim.sh --run "${CI_RUN_KEY}" --stale 12h
 
+  single-issue-pr:
+    # A PR closes one issue (base#1629). No job-level `if:` and no
+    # classify key on purpose: a doc-only PR is where a bundled PR slips
+    # through, and a skip would need a select_ key the rollup excuses.
+    # The job always runs; on merge_group, push and dispatch there is no PR
+    # to read, so it exits 0 (a queued PR was already checked). It reads
+    # the PR live through the API, so "Re-run failed jobs" after a body
+    # edit gives the right verdict. Enforcement goes through ci-rollup,
+    # the only required context.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check the PR closes one issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            echo "single-issue-pr: no pull request in a ${EVENT_NAME} run, nothing to check"
+            exit 0
+          fi
+          owner="${REPO%%/*}"
+          name="${REPO#*/}"
+          # $owner/$name/$number are GraphQL variables, not shell
+          # shellcheck disable=SC2016
+          # tool-pin: ignore -- a GraphQL query, not a third-party version
+          query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number repository{nameWithOwner}}}}}}'
+          PR_CLOSING_REFS="$(gh api graphql \
+            -F owner="${owner}" -F name="${name}" -F number="${PR_NUMBER}" \
+            -f query="${query}" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[] | "\(.repository.nameWithOwner)#\(.number)"')"
+          PR_COMMITS="$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/commits" \
+            --jq '.[].commit.message')"
+          PR_BODY="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq '.body // ""')"
+          export PR_CLOSING_REFS PR_COMMITS PR_BODY
+          bash script/ci/single_issue_pr.sh
+
   mutation-roster:
     # The required-kill mutation roster (base#1461), the hosted leg of the
     # check the no-flag `just test` runs between lint and bats. It ran
@@ -2148,7 +2194,8 @@ jobs:
     # finds that key through an explicit job-to-key map, never a rewrite
     # of the job name. A job with no key in the map (actionlint /
     # classify / test-tools-image-amd64 / test-tools-image-arm64 /
-    # doc-counts / lint-static / mutation-roster / compute-shards) carries
+    # doc-counts / lint-static / mutation-roster / single-issue-pr /
+    # compute-shards) carries
     # no `if:`, so its SKIPPED is a workflow bug
     # and fails, as does a skip whose key is `true`, empty or missing, and
     # every failure or cancel. The job set is read from `needs` itself, so
@@ -2187,7 +2234,7 @@ jobs:
     # failure cascaded into two skips and the required check went green
     # with the whole unit suite and the coverage floor never run. Those
     # two skips fail too, because classify selected both jobs.
-    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2295,7 +2342,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -2304,6 +2351,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # base#1143 / base#1712: the same guard release-worker.yaml runs before
+      # its Release. needs: above proves the commit is green, which a PR head
+      # that was never merged also is; this asks whether it is on main. The
+      # checkout is shallow and carries no remote main, so main is fetched
+      # here and the ancestry decision lives in verify-tag-on-main.sh
+      # (host-tested under `just test`). It reads GITHUB_SHA from the env.
+      - name: Verify the tagged commit is on main
+        run: |
+          git fetch --no-tags --prune origin \
+            '+refs/heads/main:refs/remotes/origin/main'
+          bash script/ci/verify-tag-on-main.sh
 
       - name: Assemble release notes for current tag
         # script/release/release_notes.sh, not an inline awk. The awk this
