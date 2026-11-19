@@ -382,6 +382,25 @@ _reach_part_of() {
     '(NR - 1) % n == k'
 }
 
+# The reach gate's title, without its part suffix (base#2003). The 4 part
+# @tests below spell it out literally, because the catalogue, count and
+# issueref tools read `@test` lines as text.
+_REACH_TITLE='every deploy-context field can change the generated bundle compose, or is a declared exemption'
+
+# Print n-1 when <title> is exactly "<_REACH_TITLE>, part n of 4
+# (base#1094)" for n in 1..4; otherwise say so and fail (base#2003).
+_reach_part_from_title() {
+  local _title="${1?missing title}" _n
+  for _n in 1 2 3 4; do
+    if [[ "${_title}" == "${_REACH_TITLE}, part ${_n} of 4 (base#1094)" ]]; then
+      echo "$(( _n - 1 ))"
+      return 0
+    fi
+  done
+  echo "not a reach-part title: ${_title}"
+  return 1
+}
+
 # ════════════════════════════════════════════════════════════════════
 # The derived gate
 # ════════════════════════════════════════════════════════════════════
