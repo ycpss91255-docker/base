@@ -14,7 +14,7 @@
 # its own gate's id first, and show every earlier gate ok -- the last is
 # what tells "this gate caught it" from "the build broke first". The
 # unmodified copy runs only as rerun (base#1547), twice on one copy; its
-# first call is the control and must pass all six gates, so the reds are
+# first call is the control and must pass all seven gates, so the reds are
 # the defects' and not the copy's.
 #
 #   case           defect                                          gate
@@ -114,7 +114,7 @@
 # two copies under diff.renames=copies, a
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
-# the six ok lines below: admission accepts every baseline the producer
+# the seven ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it. Each of these six plants only
 # non-Go files, so the packages its build log's mutation verdict lines name
 # must be exactly the one _RP_GREEN_SCOPE holds for it (reason
@@ -1337,14 +1337,15 @@ _rp_stale() {
   return 1
 }
 
-# The six lines each green and rerun call must print, typed from
+# The seven lines each green and rerun call must print, typed from
 # the issue's gate list (base#1465), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
 gate=fmt ok
 gate=vet ok
 gate=lint ok
 gate=race ok
-gate=coverage ok'
+gate=coverage ok
+gate=fuzz ok'
 
 # The five lines a coverage case must print: every gate before coverage.
 readonly _RP_PRE_COVERAGE_OUT='gate=admission ok
@@ -1354,7 +1355,7 @@ gate=lint ok
 gate=race ok'
 
 # _rp_rerun_verdict <rc> <out> -- empty when one call passed with exactly
-# the six ok lines, else the reason it did not.
+# the seven ok lines, else the reason it did not.
 _rp_rerun_verdict() {
   local rc="${1}" out="${2}"
   (( rc == 0 )) || { echo rc_not_zero; return 0; }
@@ -1362,7 +1363,7 @@ _rp_rerun_verdict() {
 }
 
 # _rp_rerun <scratch> -- run the runner twice on one unchanged copy;
-# non-zero when either call did not pass with exactly the six ok lines.
+# non-zero when either call did not pass with exactly the seven ok lines.
 _rp_rerun() {
   local root rc call reason
   root="$(_rp_copy "${1}")"
@@ -1374,13 +1375,13 @@ _rp_rerun() {
     [[ -z "${reason}" ]] && continue
     cat "${root}.err" >&2
     _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=rerun" "call=${call}" "reason=${reason}" \
-      "display=config-gen redpath case rerun: call ${call} of 2 did not print exactly the six ok lines: ${reason}"
+      "display=config-gen redpath case rerun: call ${call} of 2 did not print exactly the seven ok lines: ${reason}"
     return 1
   done
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the six ok lines, its build log lacks
+# runner did not pass with exactly the seven ok lines, its build log lacks
 # the line _RP_GREEN_LINES holds for <case>, or the packages the mutation
 # gate passed are not exactly the one _RP_GREEN_SCOPE holds for <case>.
 _rp_green_case() {
@@ -1402,12 +1403,12 @@ _rp_green_case() {
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" \
-    "display=config-gen redpath green case ${2} did not pass with exactly the six ok lines: ${reason}"
+    "display=config-gen redpath green case ${2} did not pass with exactly the seven ok lines: ${reason}"
   return 1
 }
 
 # _rp_after_admit_verdict <rc> <out> <err> <gate> <event> <file> -- empty
-# when <gate> refused the case (exit exactly 1) after exactly the six ok
+# when <gate> refused the case (exit exactly 1) after exactly the seven ok
 # lines, with exactly one <event> record, naming <file>, else the reason
 # it did not.
 _rp_after_admit_verdict() {
@@ -1472,7 +1473,7 @@ _rp_mutation_got() {
 }
 
 # _rp_retro_verdict <rc> <root> <base> -- empty when the retro call passed
-# with the six ok lines, a clean manifest from <base>, nothing unmapped
+# with the seven ok lines, a clean manifest from <base>, nothing unmapped
 # and a passing mutation line for exactly each package, else the reason
 # it did not.
 _rp_retro_verdict() {
@@ -1830,7 +1831,7 @@ main() {
   done
   (( _RP_FAILED == 0 )) || failed=1
   # rerun is the only check on the unmodified copy (base#1547): its
-  # first call is the control, held to rc 0 and exactly the six ok lines.
+  # first call is the control, held to rc 0 and exactly the seven ok lines.
   # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so
   # a scoped run is held to a passing baseline. A CONFIG_GEN_REDPATH_SHARD
   # run runs it only on the shard its one row names: the baseline is one
