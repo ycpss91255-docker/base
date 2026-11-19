@@ -731,7 +731,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (73)
+### test/bats/unit/build_worker_yaml_spec.bats (79)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -911,6 +911,12 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: the build job asks for contents: read alone (#957)` | - |
 | `build-worker.yaml: no job in the worker grants more than contents: read (#957)` | - |
 | `build-worker.yaml: the build job never cites the preflight as proof of a package grant (#957)` | - |
+| `build-worker.yaml: a failed devel-test cache import retries the stage once without cache-from (#1702)` | devel-test is the first cache-from build in the job, so an evicted GHA cache entry fails here before anything else runs; without the retry one stale entry costs the caller a full rerun (isaac#364, base#1702). |
+| `build-worker.yaml: a failed devel cache import retries the stage once without cache-from (#1702)` | devel is the image the job hands on, built from its own cache scope, so it can hit an evicted entry even after devel-test imported cleanly; a retry that still named cache-from would fail the same way. |
+| `build-worker.yaml: a failed runtime-test cache import retries the stage once without cache-from (#1702)` | runtime-test is the install check that gates the runtime image; a stale import there would fail the job for a cache problem, not for a broken install, and the report would blame the wrong thing. |
+| `build-worker.yaml: a failed runtime cache import retries the stage once without cache-from (#1702)` | runtime is the last standard build and the one a release ships; losing it to a stale import after every earlier stage passed is the most expensive form of the base#1702 failure. |
+| `build-worker.yaml: a failed extra-stage build retries once without cache flags (#1702)` | the load-bearing behaviour check: it runs the real build_stage against a stub docker, so it proves the second call drops both cache flags and keeps the target, which a grep of the step cannot show. |
+| `build-worker.yaml: both extra-stage builds go through build_stage, the only caller of buildx (#1702)` | build_stage only protects the calls routed through it; a buildx call added straight into the loop would import a stale cache with no second attempt and every other spec here would still pass. |
 | `build-worker.yaml: the Build devel stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1670)` | The generated Dockerfile declares `ARG TEST_TOOLS_IMAGE` with no default and uses it in `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`, so a build step that omits the build-arg fails with a blank base name. Scoped to the Build devel stage step: the same line already sits in the devel-test and runtime-test steps, so a whole-file match would pass without the fix (base#1670). |
 
 ### test/bats/unit/canonical_ignore_sync_lint_spec.bats (23)
