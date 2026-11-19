@@ -759,7 +759,7 @@ _digest_of() {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
   _stub_docker
-  { _gate_log fmt vet lint race coverage; printf '#13 61.02 config_gen_gate_fuzz_failed\n'; } > "${S}/build_test.err"
+  { _gate_log "${_CG_TEST_GATES[@]:0:${#_CG_TEST_GATES[@]}-1}"; printf '#13 61.02 config_gen_gate_fuzz_failed\n'; } > "${S}/build_test.err"
   printf '1\n' > "${S}/build_test.rc"
   _run_runner
   assert_equal "${status}" 1
@@ -836,7 +836,7 @@ _digest_of() {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
   _stub_docker
-  { _gate_log admission fmt vet lint race coverage
+  { _gate_log admission "${_CG_TEST_GATES[@]}"
     printf '#30 1.00 cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n'
     printf '#30 1.00 config_gen_gate_corpus_sensitivity_failed\n'; } > "${S}/build_test.err"
   printf '1\n' > "${S}/build_test.rc"
@@ -861,7 +861,7 @@ _digest_of() {
   local _p=github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/locate
   _root
   _stub_docker
-  { _gate_log admission fmt vet lint race coverage
+  { _gate_log admission "${_CG_TEST_GATES[@]}"
     printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s reason=below measured=80.4\n' "${_p}"
     printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s/internal/schema reason=gremlins_failed\n' "${_p%/internal/locate}"
     printf '#30 1.00 config_gen_gate_mutation_failed\n'; } > "${S}/build_test.err"
@@ -896,7 +896,7 @@ _digest_of() {
   done
   _root
   _stub_docker
-  { _gate_log admission fmt vet lint race coverage
+  { _gate_log admission "${_CG_TEST_GATES[@]}"
     for _id in "${_ids[@]}"; do
       printf '#30 1.00 cg_event %s file=dockerfile/config-gen/%s\n' "${_id}" "${_id}"
     done
@@ -1220,7 +1220,7 @@ _gate_record() {
 # when <gate> is empty), admission first, fuzz (base#1850) last.
 _ok_lines() {
   local _g
-  for _g in admission fmt vet lint race coverage fuzz; do
+  for _g in admission "${_CG_TEST_GATES[@]}"; do
     [[ "${_g}" == "${1}" ]] && break
     printf 'gate=%s ok\n' "${_g}"
   done
@@ -2275,7 +2275,7 @@ _glibc_getconf() {
 @test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/rerun.2.out"
+  _ok_lines "" | sed 1d > "${S}/canned/rerun.2.out"
   cp "${S}/canned/rerun.err" "${S}/canned/rerun.2.err"
   cp "${S}/canned/rerun.rc" "${S}/canned/rerun.2.rc"
   _run_redpath rerun
