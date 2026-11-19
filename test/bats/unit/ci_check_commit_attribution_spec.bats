@@ -90,6 +90,20 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: noreply address in message"
 }
 
+# why: The noreply address is matched as a fixed string. A check that
+# matched it as a regular expression would read its dot as any character
+# and fail a message naming a different address that differs only there,
+# so a trailer with `anthropicXcom` in place of the domain must exit 0
+# (base#1989).
+@test "check_commit_attribution.sh: an address that differs from the noreply address only at its dot passes (base#1989)" {
+  _commit "$(printf 'feat: x\n\nReviewed-by: Bot <%s@%sX%s>' "noreply" "anthropic" "com")"
+
+  _run_pr
+  assert_equal "${status}" 0
+  refute_output --partial "::error::"
+  assert_output --partial "no AI attribution in 1 commit(s)"
+}
+
 # why: Git accepts a space before a trailer's colon and prints the trailer in
 # canonical `key: value` form. A check that ran the marker list over the raw
 # body alone would pass `<key> : <model> <other address>`, which names the
