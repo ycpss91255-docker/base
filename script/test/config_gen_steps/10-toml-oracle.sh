@@ -27,23 +27,33 @@
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
 # `docker run` and before the toml-oracle directory exists: a verdict row
 # is keyed by path, and such a name may not survive the tar, the
-# container's loop and the TSV unchanged. A container that exits non-zero
-# is config_gen_toml_oracle_failed reason=image, and the toml-oracle directory is removed, so the build has
-# no verdicts to read. An answer whose line count differs from the number
-# of files handed in is config_gen_toml_oracle_failed reason=count, with
-# the same removal. A row whose second field is neither `accept` nor
-# `refuse` is config_gen_toml_oracle_failed reason=token, with the
-# directory removed the same way.
+# container's loop and the TSV unchanged. An image that cannot be derived
+# or built, and a container that exits non-zero, are
+# config_gen_toml_oracle_failed reason=image, and the toml-oracle
+# directory is removed, so the build has no verdicts to read. Inside the
+# container a file's verdict is the word the oracle program printed after
+# tomllib answered; an interpreter that exits non-zero, or is killed, on
+# any file fails the container, so it is reason=image too, never a
+# `refuse` row. An answer whose line count differs from the number of
+# files handed in is config_gen_toml_oracle_failed reason=count, with the
+# same removal. A row whose second field is neither `accept` nor `refuse`
+# is config_gen_toml_oracle_failed reason=token, with the directory
+# removed the same way.
 #
 # Calibration: the oracle program stands in for the real bridge only while
 # it sits at the bridge's Python call depth, which tomllib's depth refusals
-# depend on. So for every file under internal/gate/testdata/forms/depth the
+# depend on. So for every file under internal/gate/testdata/forms the
 # container also runs the image's real `toml-bridge --tables` and answers
-# `calibration\t<rel>\taccept|refuse` after the verdict rows. Those lines
-# are not verdicts: they are left out of verdicts.tsv and of the row count.
-# A calibration answer that differs from that file's verdict row is
-# config_gen_toml_oracle_failed reason=calibration file=<rel>, with the
-# directory removed the same way.
+# `calibration\t<rel>\taccept|refuse` after the verdict rows (exit 0 is
+# accept, 1 refuse, anything else fails the container). Those lines are
+# not verdicts: they are left out of verdicts.tsv and of the row count.
+# Calibration lines that do not name every forms file exactly once, in
+# order, or a run with no forms file to calibrate with, are
+# config_gen_toml_oracle_failed reason=calibration: a calibration that did
+# not run compared nothing. A calibration answer that differs from that
+# file's verdict row is config_gen_toml_oracle_failed reason=calibration
+# file=<rel>. Each removes the directory the same way (review round 1,
+# base#1851).
 #
 # Exit: 0 verdicts written; 1 otherwise.
 #
@@ -73,41 +83,46 @@ readonly _TO_CORPUS_DIR='testdata/corpus'
 # (<module> -> main() -> tomllib.loads).
 # shellcheck disable=SC2016 # expanded by the container's shell, not here.
 readonly _TO_CONTAINER_SCRIPT='set -eu
-mkdir -p /tmp/w
-cd /tmp/w
+w="$(mktemp -d)"
+cd "$w"
 tar -xf -
 find . -type f -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
   rel="${f#./}"
-  if python3 -I -c "
+  v="$(python3 -I -c "
 import sys, tomllib
 def main():
     raw = sys.stdin.buffer.read()
     try:
         tomllib.loads(raw.decode())
     except Exception:
-        raise SystemExit(1)
-main()
-" < "$f"; then
-    printf "%s\taccept\n" "$rel"
-  else
-    printf "%s\trefuse\n" "$rel"
-  fi
+        return \"refuse\"
+    return \"accept\"
+print(main())
+" < "$f")" || { printf "toml-oracle: python3 failed on %s\n" "$rel" >&2; exit 1; }
+  printf "%s\t%s\n" "$rel" "$v"
 done
-find . -type f -path "./internal/gate/testdata/forms/depth/*" -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
+find . -type f -path "./internal/gate/testdata/forms/*" -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
   rel="${f#./}"
-  if python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2>&1; then
-    printf "calibration\t%s\taccept\n" "$rel"
-  else
-    printf "calibration\t%s\trefuse\n" "$rel"
-  fi
+  rc=0
+  python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) v=accept ;;
+    1) v=refuse ;;
+    *) printf "toml-oracle: toml-bridge exited %s on %s\n" "$rc" "$rel" >&2; exit 1 ;;
+  esac
+  printf "calibration\t%s\t%s\n" "$rel" "$v"
 done'
 
 main() {
   local image module dir out
   local -a dirs=() files=()
 
-  image="$(tool_image_derive toml_bridge)"
-  tool_image_ensure toml_bridge "${image}"
+  if ! image="$(tool_image_derive toml_bridge)" \
+    || ! tool_image_ensure toml_bridge "${image}"; then
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
+      "display=config_gen_toml_oracle_failed: the pinned toml-bridge image could not be derived or built; there is no tomllib to ask"
+    return 1
+  fi
 
   module="${_TO_ROOT}/${_TO_MODULE_REL}"
   for dir in "${_TO_INPUT_DIRS[@]}"; do
@@ -162,6 +177,18 @@ main() {
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=token \
       "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer has a verdict that is neither accept nor refuse"
+    return 1
+  fi
+
+  local f want=''
+  for f in "${files[@]}"; do
+    [[ "${f}" == internal/gate/testdata/forms/* ]] && want+="${f}"$'\n'
+  done
+  if [[ -z "${want}" ]] \
+    || [[ "$(cut -f2 "${out}/calibration.tsv")"$'\n' != "${want}" ]]; then
+    rm -rf -- "${out}"
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=calibration \
+      "display=config_gen_toml_oracle_failed: the toml-bridge container's calibration lines do not name every forms file once; nothing was calibrated against the real toml-bridge --tables"
     return 1
   fi
 
