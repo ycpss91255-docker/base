@@ -324,3 +324,67 @@ func TestCheckRefusesTimeWithoutSeconds(t *testing.T) {
 		}
 	}
 }
+
+// A leading byte order mark is not TOML 1.0: tomllib reads the file with a
+// strict UTF-8 decode and refuses EF BB BF ("Invalid statement" at 1:1) and
+// FF FE / FE FF ("'utf-8' codec can't decode byte 0xff/0xfe in position 0"),
+// while BurntSushi v1.6.0 strips all three before it lexes (parse.go:47-51)
+// and decodes the rest (base#1850 probe: map[a:1], map[a:1], map[]). The
+// refusal points at the first byte of the file, 1:1. The FF FE prefix alone
+// rules out a check that needs bytes after the prefix. An FF or FE byte
+// anywhere else is invalid UTF-8 and the decoder refuses it itself (probe:
+// "invalid UTF-8 byte", each), so the gate returns nil there: the control
+// requires the decoder error, so these rows cannot pass vacuously. A UTF-8
+// BOM inside a basic string is valid content, nil.
+func TestCheckRefusesLeadingByteOrderMark(t *testing.T) {
+	for _, tc := range []struct{ name, src string }{
+		{"utf8-bom", "\xEF\xBB\xBFa = 1\n"},
+		{"utf16le-bom", "\xFF\xFEa = 1\n"},
+		{"utf16be-bom", "\xFE\xFFa = 1\n"},
+		{"utf16le-bom-alone", "\xFF\xFE"},
+	} {
+		// Control: the decoder strips the prefix and accepts the rest, so
+		// the gate is the only thing between these bytes and a parse.
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err != nil {
+			t.Fatalf("%s: toml.Decode(%q) = %v, want nil (the decoder strips the prefix)", tc.name, tc.src, err)
+		}
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != 1 || r.Col != 1 || r.Reason != ReasonBOM {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" 1 1 ReasonBOM}",
+				tc.name, r.File, r.Line, r.Col, r.Reason)
+		}
+		if want := "t.toml:1:1: "; !strings.HasPrefix(r.Error(), want) {
+			t.Errorf("%s: Error() = %q, want prefix %q", tc.name, r.Error(), want)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"utf16-bom-line-2", "a = 1\n\xFF\xFEb = 2\n"},
+		{"utf16-bom-in-literal", "a = '\xFF\xFE'\n"},
+		{"utf16-bom-in-ml-literal", "a = '''\xFF\xFE'''\n"},
+		{"utf16-bom-in-comment", "# \xFE\xFF\na = 1\n"},
+	} {
+		// Control: the decoder refuses an FF/FE byte that is not a leading
+		// prefix, so the gate need not.
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err == nil {
+			t.Fatalf("%s: toml.Decode(%q) = nil, want an invalid UTF-8 error", tc.name, tc.src)
+		}
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+	src := "a = \"\xEF\xBB\xBF\"\n"
+	var v map[string]any
+	if _, err := toml.Decode(src, &v); err != nil {
+		t.Fatalf("toml.Decode(%q) = %v, want nil", src, err)
+	}
+	if err := Check("t.toml", []byte(src)); err != nil {
+		t.Errorf("utf8-bom-in-basic-string: Check(%q) = %v, want nil", src, err)
+	}
+}
