@@ -293,6 +293,31 @@ ROWS
     || fail "verdicts.tsv: $(cat -A -- "${S}/ctx/toml-oracle/verdicts.tsv")"
 }
 
+# why: A verdict is tomllib's only when tomllib judged the file. A value
+# nested past the interpreter's recursion limit -- forms/deep.toml is
+# `a = ` and 100000 `[` -- makes tomllib raise RecursionError (checked
+# here with this container's tomllib), not TOMLDecodeError: the parser
+# ran out of stack and said nothing about whether the file is TOML. So
+# that file must not become a `refuse` row. The oracle program must fail,
+# and the step must refuse under the five-point refusal test: status 1,
+# nothing on stdout, config_gen_toml_oracle_failed reason=image, and no
+# toml-oracle/ directory (base#1851).
+@test "10-toml-oracle.sh: a file tomllib cannot judge for RecursionError is config_gen_toml_oracle_failed reason=image, never a refuse verdict (base#1851)" {
+  _put "a = $(head -c 100000 /dev/zero | tr '\0' '[')" \
+    internal/gate/testdata/forms/deep.toml
+  run python3 -I -c 'import sys, tomllib
+try:
+    tomllib.loads(open(sys.argv[1], encoding="utf-8").read())
+except RecursionError:
+    print("RecursionError")' "${G}/forms/deep.toml"
+  assert_success
+  assert_output RecursionError
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=image
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
+
 # why: The verdicts are tomllib's only when they come from the pinned
 # bridge image, the one named by the content-digest tag of dockerfile/
 # Dockerfile.toml-bridge and the files it COPYs, never from a floating tag
