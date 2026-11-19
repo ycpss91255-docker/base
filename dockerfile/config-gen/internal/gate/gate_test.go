@@ -469,6 +469,50 @@ func TestCheckRefusesOffsetHourOutOfRange(t *testing.T) {
 	}
 }
 
+// An offset minute above 59 is refused with ReasonOffsetRange at the
+// offset's sign. The first row is toml-test v2.2.0
+// invalid/datetime/offset-overflow-minute.toml byte for byte, which the
+// live oracle refuses and BurntSushi v1.6.0 accepts (base#1851 probe). The
+// TOML 1.0 ABNF limits time-minute in time-numoffset to 00-59. Column 24
+// is counted by hand: the value starts at column 5 and the 19-byte
+// datetime ends at column 23; the array row adds one for the bracket. A
+// valid hour (12, 00) rules out a check of the offset hour only. Minute 59
+// and the same bytes inside a basic string are the controls.
+func TestCheckRefusesOffsetMinuteOutOfRange(t *testing.T) {
+	for _, tc := range []struct {
+		src       string
+		line, col int
+	}{
+		{"d = 1985-06-18 17:04:07+12:60\n", 1, 24},
+		{"d = 1985-06-18T17:04:07-12:60\n", 1, 24},
+		{"d = [1985-06-18T17:04:07+00:60]\n", 1, 25},
+	} {
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err != nil {
+			t.Fatalf("toml.Decode(%q) = %v, want nil (the decoder accepts offset minute 60)", tc.src, err)
+		}
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("Check(%q) = %v, want *Refusal", tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonOffsetRange {
+			t.Errorf("Check(%q) Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonOffsetRange}",
+				tc.src, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, src := range []string{
+		"d = 1985-06-18 17:04:07+12:59\n",
+		"d = 1985-06-18T17:04:07-12:59\n",
+		"s = \"1985-06-18 17:04:07+12:60\"\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
+
 // A leading byte order mark is not TOML 1.0: tomllib reads the file with a
 // strict UTF-8 decode and refuses EF BB BF ("Invalid statement" at 1:1) and
 // FF FE / FE FF ("'utf-8' codec can't decode byte 0xff/0xfe in position 0"),
