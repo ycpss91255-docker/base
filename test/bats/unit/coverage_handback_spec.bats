@@ -49,6 +49,8 @@ teardown() {
     set -eo pipefail
     _run_coverage()    { printf "COVERAGE_RAN\n" >> "'"${_log}"'"; return 1; }
     _fix_permissions() { printf "HANDBACK\n" >> "'"${_log}"'"; }
+    # The handback is under test, not the bare-run prerequisites (base#1423).
+    _check_suite_prerequisites() { :; }
     trap _test_exit_reclaim EXIT
     COVERAGE=1 COVERAGE_PATH= COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
