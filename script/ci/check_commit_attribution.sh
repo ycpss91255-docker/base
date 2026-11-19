@@ -2,7 +2,7 @@
 # check_commit_attribution.sh - Fail when a commit in the pull request range
 # carries AI attribution, base#1989.
 #
-# Usage: BASE_SHA=<oid> HEAD_SHA=<oid> check_commit_attribution.sh
+# Usage: EVENT_NAME=<event> BASE_SHA=<oid> HEAD_SHA=<oid> check_commit_attribution.sh
 #
 # Walks `git rev-list BASE_SHA..HEAD_SHA` and matches each commit's message
 # against the marker list of the local attribution hook and the model
@@ -11,6 +11,16 @@
 # Prints `::error::commit <sha>: <marker>` for each hit and exits 1 when any
 # commit hits.
 set -euo pipefail
+
+# Only a pull request or a merge group has a range to walk; push and tag runs
+# pass with a notice instead of failing on the missing shas, base#1989.
+case "${EVENT_NAME:-}" in
+  pull_request | merge_group) ;;
+  *)
+    printf '::notice::no range to check for event %s\n' "${EVENT_NAME:-unset}"
+    exit 0
+    ;;
+esac
 
 : "${BASE_SHA:?BASE_SHA is not set}"
 : "${HEAD_SHA:?HEAD_SHA is not set}"
