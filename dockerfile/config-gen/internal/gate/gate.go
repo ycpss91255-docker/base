@@ -106,10 +106,12 @@ func Check(label string, src []byte) error {
 	return nil
 }
 
-// lineEndStart returns end, or end-1 when the token that ends at end
-// stops at the LF of a CRLF, so that the CR is read by structural as the
-// first byte of that line ending (base#1850). A token is never empty, so
-// end-1 is a byte of it.
+// lineEndStart returns end, or end-1 when the last byte of the token that
+// ends at end is the CR of a CRLF (a comment or an unclosed basic string
+// takes the CR but not the LF), so that structural reads that CR as the
+// first byte of the line ending (base#1850). The guard end < len(src)
+// skips the empty end-of-list match; every other token is at least one
+// byte, so end-1 is a byte of it.
 func lineEndStart(src []byte, end int) int {
 	if end < len(src) && src[end] == '\n' && src[end-1] == '\r' {
 		return end - 1
