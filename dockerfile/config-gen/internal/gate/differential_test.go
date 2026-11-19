@@ -149,6 +149,144 @@ func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
 	}
 }
 
+// writeOracle writes rows, one per line, as a verdicts file and returns
+// its path; no rows is an empty file.
+func writeOracle(t *testing.T, rows []string) string {
+	t.Helper()
+	data := ""
+	if len(rows) > 0 {
+		data = strings.Join(rows, "\n") + "\n"
+	}
+	p := filepath.Join(t.TempDir(), "verdicts.tsv")
+	if err := os.WriteFile(p, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// oracleDifferential, the path TestDifferential takes from the verdicts
+// file to its problems, must fail on an oracle that is not there or does
+// not cover the files, before comparing a verdict (review round 2,
+// base#1851): no path (CONFIG_GEN_TOML_ORACLE unset) and a path with no
+// file are noOracleMsg; an empty file and a file missing b.toml's row name
+// the row missing; a file with a row for c.toml, which is not one of the
+// files, names that row. Both files decode, so a run that compared only
+// the rows it had would pass every one of these. The complete file is
+// the control: no problem, both rows read.
+func TestOracleDifferentialRefusesAnIncompleteOracle(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{}
+	for _, rel := range []string{"a.toml", "b.toml"} {
+		p := filepath.Join(dir, rel)
+		if err := os.WriteFile(p, []byte("x = 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[rel] = p
+	}
+	cases := []struct {
+		name string
+		path func(t *testing.T) string
+		want string // "" = no problem; otherwise a substring of the problems
+	}{
+		{"complete", func(t *testing.T) string {
+			return writeOracle(t, []string{"a.toml\taccept", "b.toml\taccept"})
+		}, ""},
+		{"no path", func(*testing.T) string { return "" }, noOracleMsg},
+		{"no file at the path", func(t *testing.T) string {
+			return filepath.Join(t.TempDir(), "absent", "verdicts.tsv")
+		}, noOracleMsg},
+		{"empty file", func(t *testing.T) string { return writeOracle(t, nil) }, "no oracle verdict row for a.toml"},
+		{"short file", func(t *testing.T) string {
+			return writeOracle(t, []string{"a.toml\taccept"})
+		}, "no oracle verdict row for b.toml"},
+		{"extra row", func(t *testing.T) string {
+			return writeOracle(t, []string{"a.toml\taccept", "b.toml\taccept", "c.toml\taccept"})
+		}, "oracle verdict row for c.toml names no testdata file"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.path(t)
+			rows, problems := oracleDifferential(path, files)
+			got := strings.Join(problems, "\n")
+			if tc.want == "" {
+				if got != "" || len(rows) != 2 {
+					t.Fatalf("oracleDifferential(%q) = %q, %q; want both rows and no problem", path, rows, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("oracleDifferential(%q) problems = %q, want them to name %q", path, got, tc.want)
+			}
+		})
+	}
+}
+
+// flipVerdict turns a verdict row's accept into refuse and refuse into
+// accept, leaving every other field as it was.
+func flipVerdict(r string) string {
+	f := strings.Split(r, "\t")
+	if len(f) > 1 {
+		if f[1] == "accept" {
+			f[1] = "refuse"
+		} else {
+			f[1] = "accept"
+		}
+	}
+	return strings.Join(f, "\t")
+}
+
+// A verdicts file that covers every file but holds a verdict tomllib did
+// not give must fail by that file's name, through the same path
+// TestDifferential takes (review round 2, base#1851). The live rows are
+// the control and give no problem. With one vendored toml-test row
+// flipped, the one problem names that file; with every row flipped,
+// every file is named, so a comparison that skips any file, or compares
+// nothing once the rows match the files, fails here.
+func TestOracleDifferentialNamesEveryFlippedVerdict(t *testing.T) {
+	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := oracleFiles(t)
+	if _, base := oracleDifferential(writeOracle(t, rows), files); len(base) != 0 {
+		t.Fatalf("the live rows give %d problems (TestDifferential names them); a flipped verdict cannot be told from them", len(base))
+	}
+
+	one := -1
+	for i, r := range rows {
+		if strings.Contains(r, "/testdata/toml-test/") {
+			one = i
+			break
+		}
+	}
+	if one < 0 {
+		t.Fatal("no vendored toml-test row in the live verdicts")
+	}
+	flipped := append([]string(nil), rows...)
+	flipped[one] = flipVerdict(rows[one])
+	rel, _, _ := strings.Cut(rows[one], "\t")
+	_, problems := oracleDifferential(writeOracle(t, flipped), files)
+	if len(problems) != 1 || !strings.HasPrefix(problems[0], rel+": gate+BurntSushi ") {
+		t.Errorf("one flipped verdict, %s: problems = %q, want one naming it", rel, problems)
+	}
+
+	for i, r := range rows {
+		flipped[i] = flipVerdict(r)
+	}
+	_, problems = oracleDifferential(writeOracle(t, flipped), files)
+	named := map[string]bool{}
+	for _, p := range problems {
+		if f, _, ok := strings.Cut(p, ": gate+BurntSushi "); ok {
+			named[f] = true
+		}
+	}
+	for rel := range files {
+		if !named[rel] {
+			t.Errorf("every verdict flipped: no problem names %s", rel)
+		}
+	}
+}
+
 // The live rows, from the verdicts file `just test go` hands the build
 // through CONFIG_GEN_TOML_ORACLE, must equal oracleFiles' set.
 func TestOracleRows(t *testing.T) {
@@ -280,15 +418,12 @@ var int64Rows = map[string]bool{
 }
 
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
-// the live oracle answered (seam S2, base#1851); differential does the
-// comparison. The live rows must also hold tomllib's design-measured
-// verdict for every designVerdicts file.
+// the live oracle answered (seam S2, base#1851); oracleDifferential reads
+// the verdicts file and does the comparison. The live rows must also hold
+// tomllib's design-measured verdict for every designVerdicts file.
 func TestDifferential(t *testing.T) {
-	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range differential(rows, oracleFiles(t)) {
+	rows, problems := oracleDifferential(os.Getenv("CONFIG_GEN_TOML_ORACLE"), oracleFiles(t))
+	for _, p := range problems {
 		t.Error(p)
 	}
 	seen := 0
@@ -304,6 +439,19 @@ func TestDifferential(t *testing.T) {
 	if seen != len(designVerdicts) {
 		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
 	}
+}
+
+// oracleDifferential is TestDifferential's whole comparison: it reads the
+// verdicts file at path (loadOracleVerdicts, so an empty path or an
+// unreadable file is the one problem noOracleMsg) and compares its rows
+// with files (differential). It returns the rows read and one line per
+// problem (review round 2, base#1851).
+func oracleDifferential(path string, files map[string]string) ([]string, []string) {
+	rows, err := loadOracleVerdicts(path)
+	if err != nil {
+		return nil, []string{err.Error()}
+	}
+	return rows, differential(rows, files)
 }
 
 // differential compares the gate plus BurntSushi with the tomllib verdict
