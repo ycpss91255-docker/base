@@ -299,6 +299,22 @@ _run_pr() {
   assert_output --partial "::error::commit ${_sha}: attribution marker in message"
 }
 
+# why: The hook's marker list allows any run of space after the co-author
+# key's colon, none included. Git only rewrites a trailer in the last
+# paragraph into `key: value` form, so a co-author line with no space after
+# the colon followed by another paragraph reaches the check as written. A
+# check that required a space there would pass it, so this pins exit 1 for
+# that line with another address (base#1989).
+@test "check_commit_attribution.sh: a co-author line with no space after the colon, before another paragraph, fails (base#1989)" {
+  _commit "$(printf 'feat: x\n\n%s:%s <x@example.com>\n\nmore text' "$(_cab)" "$(_model)")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+}
+
 # why: The tooling has written the co-author key in lower case. A check that
 # matched the marker list case-sensitively would pass a lower-case key and
 # model name with no noreply address, so this pins exit 1 for it
