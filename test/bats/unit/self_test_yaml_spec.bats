@@ -3759,6 +3759,26 @@ _lint_probe_fixture() {
   refute_output --partial 'generate_release_notes: true'
 }
 
+# why: The release job's needs: are test gates, which a green PR head also
+# passes, so a v* tag pushed on a commit that is not on main would publish
+# a Release. The base#1143 guard ran only in the reusable worker
+# (release-worker.yaml); base's own tag path had none (base#1712).
+@test "self-test.yaml: the release job verifies the tagged commit is on main before creating the Release (base#1712)" {
+  # Parsed YAML, not a text grep, so a comment naming the script cannot
+  # satisfy it. The script path and the refspec are the literals of the
+  # worker's verify step; the release step is found by its action name.
+  local _verify _publish _run
+  _verify="$(yq '.jobs.release.steps | to_entries | .[] | select((.value.run // "") | test("script/ci/verify-tag-on-main\\.sh")) | .key' "${WF}" | head -n 1)"
+  _publish="$(yq '.jobs.release.steps | to_entries | .[] | select((.value.uses // "") | test("^softprops/action-gh-release@")) | .key' "${WF}" | head -n 1)"
+  [ -n "${_publish}" ] || fail "no softprops/action-gh-release step in the release job"
+  [ -n "${_verify}" ] || fail "no release step runs script/ci/verify-tag-on-main.sh"
+  _run="$(LP_I="${_verify}" yq '.jobs.release.steps[env(LP_I)].run' "${WF}")"
+  [[ "${_run}" == *'+refs/heads/main:refs/remotes/origin/main'* ]] \
+    || fail "the verify step does not fetch main first:"$'\n'"${_run}"
+  (( _verify < _publish )) \
+    || fail "the verify step (${_verify}) runs after Create GitHub Release (${_publish})"
+}
+
 # ── bats-unit + bats-integration + coverage jobs ───────────────
 
 @test "self-test.yaml: declares bats-fragile job (#677)" {
