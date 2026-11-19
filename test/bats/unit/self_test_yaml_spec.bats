@@ -2207,6 +2207,31 @@ HEAD_REF=${{ github.event.merge_group.head_ref }}
 EOF
 }
 
+# why: check_commit_attribution.sh only guards a pull request if a job runs it
+# over that pull request's range and the required check waits on that job.
+# A script no job calls, a job that reads the wrong range, or a shallow clone
+# with no base commit to walk from would all leave an attributed commit free
+# to merge, so this pins the job's range env, its full-history checkout and
+# its place in ci-rollup's needs (base#1989).
+@test "self-test.yaml: a commit-attribution job runs check_commit_attribution.sh over the PR or merge_group range and gates ci-rollup (base#1989)" {
+  # Expected literals are the approved design's (design-r2 section 2): job
+  # `commit-attribution`, checkout `fetch-depth: 0`, BASE_SHA and HEAD_SHA from
+  # the pull_request fields or else the merge_group ones, and a ci-rollup need.
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run // "" | test("check_commit_attribution\.sh")) | .env | to_entries | .[] | .key + "=" + .value'
+  assert_success
+  assert_output - <<'EOF'
+EVENT_NAME=${{ github.event_name }}
+BASE_SHA=${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+HEAD_SHA=${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+EOF
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.uses // "" | test("^actions/checkout@")) | .with["fetch-depth"]'
+  assert_success
+  assert_output '0'
+  run _yaml_eval "${WF}" '.jobs["ci-rollup"].needs[] | select(. == "commit-attribution")'
+  assert_success
+  assert_output 'commit-attribution'
+}
+
 # why: build-worker's merge_group_same_repo input defaults to 'false', so a
 # worker-selftest that passes nothing would skip `build` on every queue run
 # and fail the gate even for a proven same-repo group (base#1587)
