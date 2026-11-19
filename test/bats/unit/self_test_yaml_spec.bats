@@ -1755,7 +1755,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1771,11 +1771,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -3687,7 +3687,7 @@ _lint_probe_fixture() {
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
@@ -5032,4 +5032,24 @@ YAML
     || fail "the fixture's || true step did not mask the red, so this case shows nothing"
   run _lint_probe_gating_errors "${_probe}" "${_fx}" skipped roster
   assert_output --partial 'skipped: step 0'
+}
+
+# why: Branch protection requires ci-rollup alone. A single-issue-pr job
+# outside its needs would be a check nobody is blocked by, and a
+# select_single_issue_pr key would let classify skip it on a doc-only PR,
+# which is exactly where a bundled PR slips through (base#1629).
+@test "self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)" {
+  run yaml_job_needs "${WF}" ci-rollup
+  assert_success
+  assert_line single-issue-pr
+  run ! grep -q 'select_single_issue_pr' "${WF}"
+}
+
+# why: needs: alone only orders the job. A single-issue-pr job whose step
+# stopped invoking the script would stay green on every PR and gate nothing,
+# so the job body itself must run the script (base#1629).
+@test "self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)" {
+  run yaml_job_lines "${WF}" single-issue-pr
+  assert_success
+  assert_output --partial 'bash script/ci/single_issue_pr.sh'
 }
