@@ -28,6 +28,7 @@
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
+#   fuzz-panic     a Fuzz target that panics past its one seed     fuzz
 #   mut-unstaged   a committed package's test loses its assertion  mutation
 #                  as an unstaged edit, so every mutant survives
 #   mut-staged     the same edit, staged                           mutation
@@ -214,6 +215,11 @@
 # string testdata never appears in the planted source, so a scan of the
 # source text for it cannot be what turns the gate red.
 #
+# fuzz-panic's one seed passes, so the race gate (which runs seeds) stays
+# green; the target panics on any input of four or more bytes, which only
+# the fuzz gate's search reaches. It sits in internal/gate, the one
+# package that gate searches (base#1850).
+#
 # Every case is reported before the run ends; any failed case, a red
 # rerun call 1 (the control) among them, exits 1. This never calls `just
 # test go` -- that recipe runs this script -- and a nested entry is refused with config_gen_redpath_reentered
@@ -236,9 +242,9 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _RP_SERVICE='config-gen'
-readonly -a _RP_GATES=(admission fmt vet lint race coverage)
+readonly -a _RP_GATES=(admission fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # Cases that run after the pool drains, one at a time, with no other case
 # running (base#1547). The rule: a case whose expected record holds a
 # timed-out or killed count belongs here, since that count depends on how
@@ -628,6 +634,22 @@ func TestZzRace(t *testing.T) {
 	close(start)
 	wg.Wait()
 	_ = shared
+}
+EOF
+      ;;
+    fuzz-panic)
+      cat >"${mod}/internal/gate/zz_fuzzpanic_test.go" <<'EOF'
+package gate
+
+import "testing"
+
+func FuzzZzPanic(f *testing.F) {
+	f.Add("a")
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) >= 4 {
+			panic("zz: four bytes")
+		}
+	})
 }
 EOF
       ;;

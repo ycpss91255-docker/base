@@ -819,6 +819,7 @@ gate|fmt-parse|fmt
 gate|corpus-join|race
 gate|corpus-helper|race
 gate|corpus-var|race
+gate|fuzz-panic|fuzz
 gate|mut-unstaged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
 gate|mut-staged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
 gate|mut-timeout|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop|below|75.0
