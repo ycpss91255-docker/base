@@ -374,9 +374,11 @@ setup() {
   # unreachable from the day it shipped and was removed with the input,
   # and what a gha caller executes is unchanged either way.
   for _target in devel-test devel runtime-test runtime; do
-    run code_grep -F "cache-from: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache" "${WF}"
+    # base#1702: each line is gated on disable_cache, so the scope sits inside
+    # a format() call; the literal scope spelling is unchanged.
+    run code_grep -F "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key)" "${WF}"
     assert_success
-    run code_grep -F "cache-to: type=gha,scope=\${{ steps.cache.outputs.key }}-${_target}-cache,mode=max" "${WF}"
+    run code_grep -F "cache-to: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache,mode=max" "${WF}"
     assert_success
   done
 }
@@ -390,15 +392,90 @@ setup() {
   assert_success
   run code_grep -F 'type=registry' "${WF}"
   [ "${status}" -ne 0 ] || [ -z "${output}" ]
-  # Both buildx invocations (test-stage + stage) call the selection helpers
-  # (base#1702: both go through build_stage, so the selection helpers are
-  # called once, from its first attempt).
+  # Both buildx invocations (test-stage + stage) go through build_stage,
+  # whose first attempt takes its flags from set_cache_flags (base#1702),
+  # so the selection helpers are called once.
   run code_grep -cF -e '--cache-from "$(cache_from_for ' "${WF}"
   assert_success
   assert_output "1"
   run code_grep -cF -e '--cache-to "$(cache_to_for ' "${WF}"
   assert_success
   assert_output "1"
+}
+
+# why: With the cache off there is no cache-to, so no export for the warn
+# script to read; calling it anyway reports a missing export on every
+# extra-stage build of a caller that turned the cache off on purpose.
+@test "build-worker.yaml: DISABLE_CACHE=true skips the extra-stage cache-export warn calls (#1702)" {
+  DISABLE_CACHE=true run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  refute_output --partial 'cache export'
+}
+
+# why: The extra stages are built by a shell step, not the action, so the
+# 4-step YAML guards cannot see them. This runs the real step (which reads
+# `inputs.disable_cache` through an env var, as it does every input) against
+# the stubbed docker: without it, disable_cache would turn the cache off for
+# the main targets and silently leave it on for every extra stage.
+@test "build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)" {
+  DISABLE_CACHE=true run _extra_stages 'FROM debian:bookworm AS foo
+FROM debian:bookworm AS foo-test' foo
+  assert_success
+  assert_output --partial '--target foo-test'
+  assert_output --partial '--target foo '
+  refute_output --partial '--cache-from'
+  refute_output --partial '--cache-to'
+}
+
+# why: The opposite direction: a gate that dropped the flags whatever the
+# input says would pass the DISABLE_CACHE=true case and quietly take the
+# cache away from every existing caller.
+@test "build-worker.yaml: DISABLE_CACHE=false keeps the cache flags on the extra-stage builds (#1702)" {
+  DISABLE_CACHE=false run _extra_stages 'FROM debian:bookworm AS foo' foo
+  assert_success
+  assert_output --partial '--cache-from type=gha,scope=key-foo-cache'
+  assert_output --partial '--cache-to type=gha,scope=key-foo-cache,mode=max,ignore-error=true'
+}
+
+# why: With no cache-to there is no export vertex, so each of the 4 warn
+# steps would report a missing export on every build of a caller that
+# turned the cache off on purpose -- a warning that is always wrong.
+@test "build-worker.yaml: disable_cache skips the 4 cache-export warn steps (#1702)" {
+  local _id
+  for _id in build_devel_test build_devel build_runtime_test build_runtime; do
+    run code_grep -cF "if: \${{ steps.${_id}.outcome == 'success' && !inputs.disable_cache }}" "${WF}"
+    assert_output "1"
+  done
+}
+
+# why: Pins the one expression spelling that works. `!disable && format(...)
+# || ''` gives the scope string when enabled and '' when disabled (the
+# action then passes no cache flag). The natural-looking
+# `disable && '' || format(...)` does not: '' is falsy, so it falls through
+# to the cache it was meant to turn off.
+@test "build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)" {
+  local _target
+  for _target in devel-test devel runtime-test runtime; do
+    run code_grep -cF "cache-from: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache', steps.cache.outputs.key) || '' }}" "${WF}"
+    assert_output "1"
+    run code_grep -cF "cache-to: \${{ !inputs.disable_cache && format('type=gha,scope={0}-${_target}-cache,mode=max,ignore-error=true', steps.cache.outputs.key) || '' }}" "${WF}"
+    assert_output "1"
+  done
+}
+
+# ── disable_cache input (base#1702) ──────────────────────────────────
+
+# why: Default false is what keeps every existing caller on the cache it
+# uses today; a true default would turn the cache off for all of them
+# without any of them opting in.
+@test "build-worker.yaml: declares disable_cache input as boolean default false (#1702)" {
+  run code_grep -A 3 '^      disable_cache:' "${WF}"
+  assert_success
+  assert_output --partial 'required: false'
+  assert_output --partial 'type: boolean'
+  assert_output --partial 'default: false'
 }
 
 # _extra_stages <dockerfile-body> <extra_stages>
@@ -569,7 +646,7 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
 @test "build-worker.yaml: 4 build steps all set mode=max on cache-to (#272 preserved)" {
   # mode=max exports all intermediate stage layers (including the heavy
   # builder / source-build stages). One cache-to line per target.
-  run code_grep -cE '^          cache-to: type=gha,scope=.*,mode=max,ignore-error=true$' "${WF}"
+  run code_grep -cE "^          cache-to: .*type=gha,scope=.*,mode=max,ignore-error=true('|,).*\$" "${WF}"
   assert_success
   assert_output "4"
 }
@@ -593,7 +670,7 @@ FROM debian:bookworm AS fooxbar-test' foo.bar
     echo "${output} type=gha cache-to found, want exactly 6" >&2
     return 1
   }
-  _bad="$(grep -vE '(^|,)ignore-error=true(,|$)' <<<"${_all}" || true)"
+  _bad="$(grep -vE "(^|,)ignore-error=true(,|'|\$)" <<<"${_all}" || true)"
   [ -z "${_bad}" ] || {
     echo "type=gha cache-to without ignore-error=true:" >&2
     printf '%s\n' "${_bad}" >&2
@@ -713,7 +790,8 @@ FROM debian:bookworm AS foo-test' foo
       _bad+="${_job} '${_name}': next step does not run cache_export_warn.sh"$'\n'
     elif [[ "${_meta}" != *"steps.${_id}.outputs.metadata"* ]]; then
       _bad+="${_job} '${_name}': warn step BUILD_METADATA is '${_meta}'"$'\n'
-    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" ]]; then
+    elif [[ "${_if}" != "steps.${_id}.outcome == 'success'" \
+        && "${_if}" != "steps.${_id}.outcome == 'success' && !inputs.disable_cache" ]]; then
       _bad+="${_job} '${_name}': warn step if: is '${_if}'"$'\n'
     fi
   done <<<"${_rows}"
@@ -739,7 +817,7 @@ FROM debian:bookworm AS foo-test' foo
   # Every cache line the worker carries names the one backend outright.
   local _lines _gha
   _lines="$(code_grep -cE '^          cache-(from|to): ' "${WF}")"
-  _gha="$(code_grep -cE '^          cache-(from|to): type=gha,scope=' "${WF}")"
+  _gha="$(code_grep -cE "^          cache-(from|to): .*type=gha,scope=" "${WF}")"
   [[ "${_lines}" -eq 8 ]] || fail \
       "expected the 4 build steps' 8 cache lines, found ${_lines} -- the equality below would be comparing two numbers that are both wrong"
   [[ "${_gha}" -eq "${_lines}" ]] || fail \

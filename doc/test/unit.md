@@ -731,7 +731,7 @@ name, which is exactly the set the compose emitter drops.
 | `stage_names: a missing Dockerfile fails naming the path it looked for` | An unreadable Dockerfile is not "no stages", it is "we do not know". Answering an empty roster there is how a worker skips a build and calls it a pass, and the path has to be in the message or the operator cannot tell which file it failed to find. |
 | `stage_names: an empty DOCKERFILE path fails loudly` | The unset-input case, which a workflow reaches by forgetting one `env:` line. It has to fail at the reader naming the variable, because the alternative -- an empty roster from an empty path -- is a build the worker quietly declines to run. |
 
-### test/bats/unit/build_worker_yaml_spec.bats (79)
+### test/bats/unit/build_worker_yaml_spec.bats (85)
 
 Structural assertions for `.github/workflows/build-worker.yaml` (#195 + #243
 + #272 + #273 + #378 b1). Reusable workflows are not exec'd by these tests;
@@ -866,6 +866,12 @@ matching fails instead of reporting a clean scan
 | `build-worker.yaml: Compute cache scope step emits id: cache with base key in GITHUB_OUTPUT (#272 + #378 + #802)` | - |
 | `build-worker.yaml: 4 build steps use per-target gha cache scopes (#378 b1, #980)` | - |
 | `build-worker.yaml: extra_stages caches the same way the standard steps do (#980)` | - |
+| `build-worker.yaml: DISABLE_CACHE=true skips the extra-stage cache-export warn calls (#1702)` | With the cache off there is no cache-to, so no export for the warn script to read; calling it anyway reports a missing export on every extra-stage build of a caller that turned the cache off on purpose. |
+| `build-worker.yaml: DISABLE_CACHE=true passes no cache flag to the extra-stage builds (#1702)` | The extra stages are built by a shell step, not the action, so the 4-step YAML guards cannot see them. This runs the real step (which reads `inputs.disable_cache` through an env var, as it does every input) against the stubbed docker: without it, disable_cache would turn the cache off for the main targets and silently leave it on for every extra stage. |
+| `build-worker.yaml: DISABLE_CACHE=false keeps the cache flags on the extra-stage builds (#1702)` | The opposite direction: a gate that dropped the flags whatever the input says would pass the DISABLE_CACHE=true case and quietly take the cache away from every existing caller. |
+| `build-worker.yaml: disable_cache skips the 4 cache-export warn steps (#1702)` | With no cache-to there is no export vertex, so each of the 4 warn steps would report a missing export on every build of a caller that turned the cache off on purpose -- a warning that is always wrong. |
+| `build-worker.yaml: disable_cache empties cache-from and cache-to on the 4 build steps (#1702)` | Pins the one expression spelling that works. `!disable && format(...) \|\| ''` gives the scope string when enabled and '' when disabled (the action then passes no cache flag). The natural-looking `disable && '' \|\| format(...)` does not: '' is falsy, so it falls through to the cache it was meant to turn off. |
+| `build-worker.yaml: declares disable_cache input as boolean default false (#1702)` | Default false is what keeps every existing caller on the cache it uses today; a true default would turn the cache off for all of them without any of them opting in. |
 | `build-worker.yaml: an extra stage's -test companion is found on a --platform FROM line (#1013)` | The reported #1013 miss, asserted on what the step BUILDS rather than on what its text says: the detector allowed one token between FROM and AS, so the cross-build form the arm64 matrix invites declared nothing and the stage's smoke test was silently not built. |
 | `build-worker.yaml: an extra stage with no -test companion builds only itself (#1013)` | The cost of widening a detector, pinned in the opposite direction: inventing a `-test` target the Dockerfile does not declare fails the build outright, which is a worse outcome than the miss it was fixing. |
 | `build-worker.yaml: the extra-stages roster comes from the shared resolver (#1013)` | The structural half, and the one that stops #1013 recurring: two readers of one fact with a comment asserting they agree is what produced the miss. This fails if the file grows a `FROM ... AS` pattern of its own again, which a behavioural case on a correct pattern cannot see. |
