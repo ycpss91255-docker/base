@@ -1014,6 +1014,14 @@ _attributed_message() {
     Co Authored By Cla ude noreply anthropic com
 }
 
+# _commit_attribution_check <repo>: copy the attribution check into the
+# mirror repo and commit it, so the leg has a check to run.
+_commit_attribution_check() {
+  cp /source/script/ci/check_commit_attribution.sh "$1/script/ci/"
+  git -C "$1" -c user.name=t -c user.email=t@t add -A
+  git -C "$1" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+}
+
 # why: The mirror attests the commit-attribution job through
 # `--commit-attribution`. A body that returned 0 without running the check
 # left every other spec green, so the leg could pass a branch CI fails. A
@@ -1023,9 +1031,7 @@ _attributed_message() {
   _require_mirror
   local _base _bad _r="${SCRATCH}/repo"
   _base="$(_make_mirror_repo)"
-  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
-  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
-  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  _commit_attribution_check "${_r}"
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
     -m "$(_attributed_message)"
   _bad="$(git -C "${_r}" rev-parse HEAD)"
@@ -1081,9 +1087,7 @@ STUB
   _require_mirror
   local _root _bad _r="${SCRATCH}/repo"
   _root="$(_make_mirror_repo)"
-  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
-  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
-  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  _commit_attribution_check "${_r}"
   git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
     -m "$(_attributed_message)"
   _bad="$(git -C "${_r}" rev-parse HEAD)"
@@ -1104,9 +1108,7 @@ STUB
   _require_mirror
   local _r="${SCRATCH}/repo"
   _make_mirror_repo >/dev/null
-  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
-  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
-  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  _commit_attribution_check "${_r}"
   run env PRE_PR_MIRROR_BASE=no-such-base "$(command -v bash)" \
       "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
   assert_failure
