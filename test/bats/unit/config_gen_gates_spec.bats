@@ -2650,6 +2650,35 @@ gate=fuzz ok'
   assert_logged_event config_gen_redpath_case_failed case=race-fuzz reason=wrong_id gate=race
 }
 
+# why: The fuzz gate (base#1850) searches beyond the seeds the race gate
+# already runs. Its planted defect is a Fuzz target whose one seed passes,
+# so the race gate stays green, and that panics on any input of four or
+# more bytes, which only a search reaches. It sits in internal/gate, the one
+# package the fuzz gate searches. A case that went red on the
+# race gate instead would prove nothing about the search.
+@test "config_gen_redpath.sh: the fuzz-panic case plants a Fuzz target whose seed passes and must produce the fuzz gate's id (base#1850)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  _redpath_repo
+  _run_redpath fuzz-panic
+  assert_success
+  local _mod _new _f
+  _mod="${S}/runner.$(_redpath_call fuzz-panic).mod"
+  _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd "${S}/repo/dockerfile/config-gen" && find . -type f | sort))"
+  assert_equal "${_new}" "./internal/gate/zz_fuzzpanic_test.go"
+  _f="${_mod}/internal/gate/zz_fuzzpanic_test.go"
+  run grep -c '^func Fuzz' "${_f}"
+  assert_output 1
+  run grep -E 'f\.Add\("a"\)' "${_f}"
+  assert_success
+  run grep -E 'len\(s\) >= 4' "${_f}"
+  assert_success
+  rm -rf "${S}"/runner.* "${S}"/calls.*
+  _gate_record config_gen_gate_race_failed gate=race status=1 display=race > "${S}/canned/fuzz-panic.err"
+  _run_redpath fuzz-panic
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=fuzz-panic reason=wrong_id gate=fuzz
+}
+
 # why: A _test.go file is outside `go build`, so a syntax error there
 # passes the build stage and reaches the fmt gate first. gofmt then exits
 # non-zero instead of listing a file; a fmt RUN that let that status kill
