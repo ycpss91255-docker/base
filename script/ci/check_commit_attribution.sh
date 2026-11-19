@@ -27,7 +27,10 @@ hits=0
 count=0
 while IFS= read -r sha; do
   count=$((count + 1))
-  msg="$(git log -1 --format=%B "${sha}")"
+  # The body plus git's own unfolded trailers: git prints a trailer written
+  # with a space before the colon in canonical `key: value` form, so the
+  # marker list sees it too, base#1989.
+  msg="$(git log -1 --format='%B%n%(trailers:unfold)' "${sha}")"
   if grep -qiE "${markers}" <<<"${msg}"; then
     printf '::error::commit %s: attribution marker in message\n' "${sha}"
     hits=$((hits + 1))
