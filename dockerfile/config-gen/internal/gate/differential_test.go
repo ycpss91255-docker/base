@@ -129,9 +129,9 @@ func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
 		rows []string
 		want string // "" = no problem; otherwise a substring of the problems
 	}{
-		{"the files once each", []string{"a.toml\taccept", "b.toml\taccept"}, ""},
-		{"a repeated in b's place", []string{"a.toml\taccept", "a.toml\taccept"}, "no oracle verdict row for b.toml"},
-		{"a repeated beside b", []string{"a.toml\taccept", "a.toml\taccept", "b.toml\taccept"}, "oracle verdict row for a.toml appears more than once"},
+		{"the files once each", []string{"a.toml\taccept\t" + x1Digest, "b.toml\taccept\t" + x1Digest}, ""},
+		{"a repeated in b's place", []string{"a.toml\taccept\t" + x1Digest, "a.toml\taccept\t" + x1Digest}, "no oracle verdict row for b.toml"},
+		{"a repeated beside b", []string{"a.toml\taccept\t" + x1Digest, "a.toml\taccept\t" + x1Digest, "b.toml\taccept\t" + x1Digest}, "oracle verdict row for a.toml appears more than once"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,6 +164,13 @@ func writeOracle(t *testing.T, rows []string) string {
 	return p
 }
 
+// x1Digest and x2Digest are the SHA-256 of "x = 1\n" and "x = 2\n", as
+// sha256sum printed them.
+const (
+	x1Digest = "9e26bf369911c45c243c684147b23fc9e1dcfcf257d299a1c632016a6fcd33f4"
+	x2Digest = "4205c4809ab1b080fd32b6bf9640e5feaa6d1b69bf9fa684954ab710157ec141"
+)
+
 // oracleDifferential, the path TestDifferential takes from the verdicts
 // file to its problems, must fail on an oracle that is not there or does
 // not cover the files, before comparing a verdict (review round 2,
@@ -171,8 +178,13 @@ func writeOracle(t *testing.T, rows []string) string {
 // file are noOracleMsg; an empty file and a file missing b.toml's row name
 // the row missing; a file with a row for c.toml, which is not one of the
 // files, names that row. Both files decode, so a run that compared only
-// the rows it had would pass every one of these. The complete file is
-// the control: no problem, both rows read.
+// the rows it had would pass every one of these. A row is
+// `<rel>\t<verdict>\t<sha256>`, the digest of the bytes tomllib parsed: a
+// row whose digest is not the file's (b.toml answered as "x = 2\n", the
+// file holds "x = 1\n") is an answer about other bytes, however its
+// verdict compares, and a row with no digest cannot be bound to the file.
+// Both name the row. The complete file is the control: no problem, both
+// rows read.
 func TestOracleDifferentialRefusesAnIncompleteOracle(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{}
@@ -189,7 +201,7 @@ func TestOracleDifferentialRefusesAnIncompleteOracle(t *testing.T) {
 		want string // "" = no problem; otherwise a substring of the problems
 	}{
 		{"complete", func(t *testing.T) string {
-			return writeOracle(t, []string{"a.toml\taccept", "b.toml\taccept"})
+			return writeOracle(t, []string{"a.toml\taccept\t" + x1Digest, "b.toml\taccept\t" + x1Digest})
 		}, ""},
 		{"no path", func(*testing.T) string { return "" }, noOracleMsg},
 		{"no file at the path", func(t *testing.T) string {
@@ -197,11 +209,17 @@ func TestOracleDifferentialRefusesAnIncompleteOracle(t *testing.T) {
 		}, noOracleMsg},
 		{"empty file", func(t *testing.T) string { return writeOracle(t, nil) }, "no oracle verdict row for a.toml"},
 		{"short file", func(t *testing.T) string {
-			return writeOracle(t, []string{"a.toml\taccept"})
+			return writeOracle(t, []string{"a.toml\taccept\t" + x1Digest})
 		}, "no oracle verdict row for b.toml"},
 		{"extra row", func(t *testing.T) string {
-			return writeOracle(t, []string{"a.toml\taccept", "b.toml\taccept", "c.toml\taccept"})
+			return writeOracle(t, []string{"a.toml\taccept\t" + x1Digest, "b.toml\taccept\t" + x1Digest, "c.toml\taccept\t" + x1Digest})
 		}, "oracle verdict row for c.toml names no testdata file"},
+		{"stale row", func(t *testing.T) string {
+			return writeOracle(t, []string{"a.toml\taccept\t" + x1Digest, "b.toml\taccept\t" + x2Digest})
+		}, "b.toml: tomllib answered on bytes with sha256 " + x2Digest + ", the file has " + x1Digest},
+		{"row with no digest", func(t *testing.T) string {
+			return writeOracle(t, []string{"a.toml\taccept\t" + x1Digest, "b.toml\taccept"})
+		}, `oracle verdict row "b.toml\taccept" is not <rel>, <verdict> and <sha256>`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

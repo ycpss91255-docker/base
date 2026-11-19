@@ -18,7 +18,8 @@
 # stdin as ${S}/in.tar and then runs the step's own container script (the
 # argument after `-c`) on that tar with a stand-in python3 first on PATH,
 # so the container's loops are the step's, not the stub's. The stand-in
-# answers by a planted file's content: `refuse` is refused by the oracle
+# oracle program answers `<verdict>\t<sha256 of its stdin>`, as the real
+# one does, by a planted file's content: `refuse` is refused by the oracle
 # program and by the bridge, `bridge-refuse` only by the bridge, `die`
 # kills the oracle program's interpreter and `bridge-die` the bridge's;
 # anything else is accepted. When ${S}/answers exists the stub prints that
@@ -44,12 +45,15 @@ setup() {
   cat > "${S}/py/python3" <<EOF
 #!$(command -v bash)
 # python3 -I -c <oracle program> | python3 -I <bridge> --tables
-c="\$(cat)"
+in="\$(mktemp)"
+cat > "\${in}"
+c="\$(cat "\${in}")"
 if [[ "\${2:-}" == -c ]]; then
+  d="\$(sha256sum < "\${in}")"
   case "\${c}" in
     die) kill -9 \$\$ ;;
-    refuse) printf 'refuse\n' ;;
-    *) printf 'accept\n' ;;
+    refuse) printf 'refuse\t%s\n' "\${d%% *}" ;;
+    *) printf 'accept\t%s\n' "\${d%% *}" ;;
   esac
   exit 0
 fi
@@ -110,6 +114,14 @@ _plant_as() {
   printf '%s\n' "${1}" > "${G}/${2}"
 }
 
+# _digest <rel> -- the SHA-256 of the planted file at <rel>, as
+# sha256sum prints it.
+_digest() {
+  local _d
+  _d="$(sha256sum < "${G}/${1}")"
+  printf '%s\n' "${_d%% *}"
+}
+
 # _oracle [<VAR=value>...] -- the step on the scratch root, docker
 # stubbed, JSON logs, with each <VAR=value> added to its environment.
 _oracle() {
@@ -166,7 +178,10 @@ _run_calls() {
 
 # why: The differential test reads verdicts.tsv as tomllib's answer, so
 # what the container answered must reach the build as it was, neither
-# re-sorted nor rewritten, and its calibration lines left out. Here the
+# re-sorted nor rewritten, and its calibration lines left out. Each row
+# carries the SHA-256 of the bytes the oracle program read, which the
+# differential test checks against the file (review round 2, base#1851);
+# the expected digests are sha256sum's of the planted files. Here the
 # container's own loop runs with a stand-in interpreter that refuses two
 # of the four files, one under forms and one under toml-test, so a step
 # that writes `accept` for every file, or drops the refused rows, gives a
@@ -179,11 +194,11 @@ _run_calls() {
   _oracle
   assert_success
   assert_output ''
-  printf '%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept \
-    internal/gate/testdata/forms/b.toml refuse \
-    internal/gate/testdata/toml-test/invalid/c.toml refuse \
-    internal/gate/testdata/toml-test/valid/d.toml accept \
+  printf '%s\t%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept "$(_digest forms/a.toml)" \
+    internal/gate/testdata/forms/b.toml refuse "$(_digest forms/b.toml)" \
+    internal/gate/testdata/toml-test/invalid/c.toml refuse "$(_digest toml-test/invalid/c.toml)" \
+    internal/gate/testdata/toml-test/valid/d.toml accept "$(_digest toml-test/valid/d.toml)" \
     > "${S}/want.tsv"
   cmp -- "${S}/want.tsv" "${S}/ctx/toml-oracle/verdicts.tsv" \
     || fail "verdicts.tsv: $(cat -A -- "${S}/ctx/toml-oracle/verdicts.tsv")"
@@ -291,21 +306,29 @@ _run_calls() {
 # why: The differential test reads each row's second field as tomllib's
 # verdict, and only `accept` and `refuse` are verdicts. An answer with the
 # right number of rows whose middle row says `maybe` is not something
-# tomllib said about that file, and it must not reach the build. The step
-# must refuse under the five-point refusal test: status 1, nothing on
-# stdout, config_gen_toml_oracle_failed reason=token, and no toml-oracle/
-# directory left behind.
-@test "10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1851)" {
+# tomllib said about that file, and it must not reach the build. Nor may a
+# row whose third field is not a SHA-256 -- 63 hex digits, a capital hex
+# digit, nothing at all, or a fourth field after it: the differential
+# test binds each verdict to the file by that digest (review round 2,
+# base#1851). Each is refused under the five-point refusal test: status 1,
+# nothing on stdout, config_gen_toml_oracle_failed reason=token, and no
+# toml-oracle/ directory left behind.
+@test "10-toml-oracle.sh: an answer whose verdict is neither accept nor refuse, or whose digest is not a SHA-256, is config_gen_toml_oracle_failed reason=token, no toml-oracle/ left (base#1851)" {
   _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
-  printf '%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept \
-    internal/gate/testdata/forms/b.toml maybe \
-    internal/gate/testdata/toml-test/invalid/c.toml refuse \
-    > "${S}/answers"
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=token
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+  local _d _bad
+  _d="$(_digest forms/a.toml)"
+  for _bad in "maybe\t${_d}" "accept\t${_d:1}" "accept\t${_d:1}A" 'accept' \
+              "accept\t${_d}\textra"; do
+    printf "%s\t%s\t%s\n%s\t${_bad}\n%s\t%s\t%s\n" \
+      internal/gate/testdata/forms/a.toml accept "${_d}" \
+      internal/gate/testdata/forms/b.toml \
+      internal/gate/testdata/toml-test/invalid/c.toml refuse "${_d}" \
+      > "${S}/answers"
+    _oracle
+    assert_refusal 1 config_gen_toml_oracle_failed reason=token
+    [[ ! -e "${S}/ctx/toml-oracle" ]] \
+      || fail "a refused oracle run left ${S}/ctx/toml-oracle behind (${_bad})"
+  done
 }
 
 # why: The oracle program in the step stands in for the real toml-bridge,
@@ -338,9 +361,9 @@ _run_calls() {
 # and no toml-oracle/ directory left (review round 1, base#1851).
 @test "10-toml-oracle.sh: an answer that calibrates fewer than every forms file, or none, is config_gen_toml_oracle_failed reason=calibration (base#1851)" {
   _plant forms/a.toml forms/b.toml
-  printf '%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept \
-    internal/gate/testdata/forms/b.toml accept \
+  printf '%s\t%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept "$(_digest forms/a.toml)" \
+    internal/gate/testdata/forms/b.toml accept "$(_digest forms/b.toml)" \
     > "${S}/answers"
   printf 'calibration\t%s\t%s\n' \
     internal/gate/testdata/forms/a.toml accept \
