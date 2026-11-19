@@ -10123,7 +10123,7 @@ back is in upgrade_migration_reachability_spec.bats.
 | `check-base-version.sh still resolves its default with no override set (#895)` | - |
 | `a caller's TEMPLATE_REMOTE still wins over the shared default (#895)` | - |
 
-### test/bats/unit/validated_key_reach_spec.bats (22)
+### test/bats/unit/validated_key_reach_spec.bats (23)
 
 Covers base#1094 -- the keys that validate and then never reach the emitted
 artifact. The DERIVED gate here is the one that matters:
@@ -10146,6 +10146,7 @@ never heard of it.
 | `every deploy-context field has a reach probe, and every probe names a field (base#1094)` | base#1094 -- `_resolve_deploy_context`'s populated record is the code's own declaration of which config values the field bundle is built from, so holding the probe table equal to it is what stops this gate from quietly covering 23 of 24 fields. Measured on 0faacb57: 24 fields. |
 | `every deploy-context field can change the generated bundle compose, or is a declared exemption (base#1094)` | base#1094 -- the defect's exact shape: a key validates, the resolver reads it into the context, and the emitter never consumes it, so the operator's setting does nothing and nothing says so. `pid_mode` and the two `[logging]` fields were in that state. The population is derived from the context record, so a field added tomorrow and then dropped by the emitter fails here; the alternative -- naming today's fields -- is the assertion that would have passed all through base#1094. |
 | `a reach part is every K-th field from its index (base#2003)` | base#2003 -- the reach gate runs in parts so no one @test runs past the per-test timeout under coverage, and a part is the fields at index i with i % K == k. Over a worked literal, so a constant part, a dropped index, or an index counted from 1 each gives other lines. |
+| `a reach part number comes only from an exact reach-part title (base#2003)` | base#2003 -- each reach part takes its part from its own title, and only a title equal to one of the 4 exact reach-part titles gives one. The titles are typed here rather than read from the constant, so a drift between the two fails. A copy-edited title, a trailing word, a part outside 1..4 and a title with no part are each refused. |
 | `every reach exemption names a deploy-context field and carries a reason (base#1094)` | base#1094 -- an exemption is a claim about where the value goes, and an unexplained one is the hole this gate exists to close. Mirrors schema.sh's SCHEMA_FREEFORM reason rule. |
 | `pid = container:<name> reaches the dev compose, and private still does not (base#1094)` | base#1094 item 1 -- `_validate_pid_mode` accepts `container:<name>` and the TUI offers it, while both emitters wrote `pid:` only when the value was exactly `host`. A user who set `container:foo` got a green config and a compose file with no `pid:` line at all. `private` stays omitted on purpose: Docker rejects it as a literal and omitting the key gives the same private namespace. |
 | `pid = container:<name> reaches the field bundle as a literal (base#1094)` | base#1094 item 1, field tier. The bundle writes literals rather than `${PID_MODE}`, so the value itself has to arrive -- a bundle that merely carried the key would be no use to the device. |

@@ -469,6 +469,32 @@ _reach_part_of() {
   assert_output "d"
 }
 
+# why: base#2003 -- each reach part takes its part from its own title,
+# and only a title equal to one of the 4 exact reach-part titles gives
+# one. The titles are typed here rather than read from the constant, so
+# a drift between the two fails. A copy-edited title, a trailing word, a
+# part outside 1..4 and a title with no part are each refused.
+@test "a reach part number comes only from an exact reach-part title (base#2003)" {
+  local _t='every deploy-context field can change the generated bundle compose, or is a declared exemption'
+  run _reach_part_from_title "${_t}, part 1 of 4 (base#1094)"
+  assert_success
+  assert_output "0"
+  run _reach_part_from_title "${_t}, part 4 of 4 (base#1094)"
+  assert_success
+  assert_output "3"
+
+  local _bad
+  for _bad in \
+    "copy-edited reach title, part 2 of 4 (base#1094)" \
+    "${_t}, part 2 of 4 (base#1094) x" \
+    "${_t}, part 5 of 4 (base#1094)" \
+    "${_t} (base#1094)"; do
+    run _reach_part_from_title "${_bad}"
+    assert_failure
+    refute_output --regexp '^[0-9]+$'
+  done
+}
+
 # why: base#1094 -- an exemption is a claim about where the value goes,
 # and an unexplained one is the hole this gate exists to close. Mirrors
 # schema.sh's SCHEMA_FREEFORM reason rule.
