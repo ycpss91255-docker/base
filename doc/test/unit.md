@@ -2712,6 +2712,19 @@ name is not a spec identity on its own.
 | `self-test.yaml: compute-shards uploads the weights it published as the shard-weights artifact (base#1410)` | the fetch half of the local path. A job output cannot be downloaded after the run; an artifact can (`gh run download <run> -n shard-weights`), so compute-shards publishes the exact file it encoded. |
 | `justfile: coverage takes an optional weights file and forwards it as --shard-weights (base#1410)` | the `just` entry. `just test coverage N/T <weights>` is the operator's form of the local path above. |
 
+### test/bats/unit/coverage_workdir_isolation_spec.bats (1)
+
+`_coverage_parallel_workdir` reuses an exported COVERAGE_LOCAL_WORKDIR and
+keeps it. A spec that starts a nested driver inherits it, so the nested run
+wrote into the parent's work dir and truncated the parent's log-1 to 0
+bytes: a test damaging the evidence of the run it belongs to, with a result
+that depends on the caller's environment (base#1420). The nested specs must
+not inherit it.
+
+| Test | Description |
+|------|-------------|
+| `nested driver tests leave a caller-named COVERAGE_LOCAL_WORKDIR untouched (base#1420)` | the sentinel stands for the parent's evidence. Any write to the named dir, a truncated log-1 or a slice dir the nested run created, is the leak. |
+
 ### test/bats/unit/deploy_hint_spec.bats (6)
 
 Covers the "regenerate this artifact" hints stamped into what the deploy
