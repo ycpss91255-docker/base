@@ -45,6 +45,12 @@ while IFS= read -r sha; do
     printf '::error::commit %s: noreply address as author email\n' "${sha}"
     hits=$((hits + 1))
   fi
+  # The committer identity is read on its own: a commit can keep a human
+  # author while the address commits it, base#1989.
+  if grep -qixF "${addr}" <<<"$(git log -1 --format='%ce' "${sha}")"; then
+    printf '::error::commit %s: noreply address as committer email\n' "${sha}"
+    hits=$((hits + 1))
+  fi
 done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
 
 if [[ "${hits}" -gt 0 ]]; then
