@@ -11,8 +11,8 @@
 #
 #   dockerfile/Dockerfile.config-gen  build, test and final (scratch) stages;
 #                                     the test stage runs fmt, vet, lint,
-#                                     race and coverage, one RUN each, in
-#                                     that order.
+#                                     race, coverage and fuzz, one RUN each,
+#                                     in that order.
 #   script/test/config_gen_gates.sh   the runner: steps seam, named build
 #                                     contexts, the docker build, the gate id
 #                                     re-emitted, and the binary contract.
@@ -159,15 +159,16 @@ _df_instructions() {
 }
 
 # why: Each gate is its own RUN so a red names its gate: one RUN running all
-# five would leave the first id as the only record and stop the later gates
+# six would leave the first id as the only record and stop the later gates
 # from reading as "never reached" rather than "passed". The order is the one
-# the redpath's earlier_gate_missing check reads.
-@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)" {
+# the redpath's earlier_gate_missing check reads; fuzz, the 60 s search
+# (base#1850), runs last of them; the gates after it print no ok line.
+@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, fuzz, one RUN each, in that order (base#1462)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _gates
   _gates="$(_df_instructions | awk -F'\t' '$1 == "test" && $2 ~ /^RUN / {print $2}' \
       | grep -oE 'gate=[a-z]+ ok' | sed -E 's/^gate=([a-z]+) ok$/\1/' | paste -sd' ')"
-  assert_equal "${_gates}" "fmt vet lint race coverage"
+  assert_equal "${_gates}" "fmt vet lint race coverage fuzz"
   # One gate per RUN: no test-stage RUN carries two ok lines.
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / { n = gsub(/gate=[a-z]+ ok/, "&"); if (n > 1) print }' "${S}/df"
