@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"fmt"
 	"io/fs"
 	"math"
 	"os"
@@ -279,44 +280,78 @@ var int64Rows = map[string]bool{
 }
 
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
-// the live oracle answered (seam S2, base#1851):
-// accept when Check returns nil and toml.Decode then succeeds, refuse
-// otherwise, with one exception: when Check returns nil and toml.Decode
-// refuses only integers outside int64 (int64Only), which tomllib accepts,
-// the verdict is accept. Among the forms files, only int64Rows may take
-// that path. Each disagreeing file fails by name with both verdicts.
+// the live oracle answered (seam S2, base#1851); differential does the
+// comparison. The live rows must also hold tomllib's design-measured
+// verdict for every designVerdicts file.
 func TestDifferential(t *testing.T) {
 	rows, err := loadOracleVerdicts(os.Getenv("CONFIG_GEN_TOML_ORACLE"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := oracleFiles(t)
+	for _, p := range differential(rows, oracleFiles(t)) {
+		t.Error(p)
+	}
 	seen := 0
 	for _, r := range rows {
-		rel, live, ok := strings.Cut(r, "\t")
-		if !ok {
-			t.Fatalf("oracle verdict row %q has no tab", r)
-		}
+		rel, live, _ := strings.Cut(r, "\t")
 		if want, pinned := designVerdicts[rel]; pinned {
 			seen++
 			if live != want {
 				t.Errorf("%s: live tomllib verdict %s, design §1 measured %s", rel, live, want)
 			}
 		}
-		path, ok := files[rel]
-		if !ok {
-			t.Fatalf("oracle verdict row %s names no file the differential reads", rel)
+	}
+	if seen != len(designVerdicts) {
+		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
+	}
+}
+
+// differential compares the gate plus BurntSushi with the tomllib verdict
+// rows on files (rel -> path to read) and returns one line per problem.
+// The rows must first name exactly the files (checkOracleRows), each
+// once; otherwise that is the only problem, before any verdict is
+// compared (review round 1, base#1851). Then each row's verdict is accept
+// when Check returns nil and toml.Decode then succeeds, refuse otherwise,
+// with one exception: when Check returns nil and toml.Decode refuses only
+// integers outside int64 (int64Only), which tomllib accepts, the verdict
+// is accept. Among the forms files, only int64Rows may take that path.
+// Each disagreeing file is named with both verdicts.
+func differential(rows []string, files map[string]string) []string {
+	rels := make([]string, 0, len(files))
+	for rel := range files {
+		rels = append(rels, rel)
+	}
+	if err := checkOracleRows(rows, rels); err != nil {
+		return []string{err.Error()}
+	}
+	var problems []string
+	count := map[string]int{}
+	for _, r := range rows {
+		rel, _, _ := strings.Cut(r, "\t")
+		if count[rel]++; count[rel] == 2 {
+			problems = append(problems, "oracle verdict row for "+rel+" appears more than once")
 		}
-		src, err := os.ReadFile(path)
+	}
+	if len(problems) > 0 {
+		return problems
+	}
+	for _, r := range rows {
+		rel, live, ok := strings.Cut(r, "\t")
+		if !ok {
+			problems = append(problems, fmt.Sprintf("oracle verdict row %q has no tab", r))
+			continue
+		}
+		src, err := os.ReadFile(files[rel])
 		if err != nil {
-			t.Fatal(err)
+			problems = append(problems, err.Error())
+			continue
 		}
 		got, viaInt64 := "refuse", false
 		var v map[string]any
 		if Check(rel, src) == nil {
 			norm := Normalize(src)
 			if len(norm) != len(src) {
-				t.Errorf("%s: Normalize changed the length %d -> %d", rel, len(src), len(norm))
+				problems = append(problems, fmt.Sprintf("%s: Normalize changed the length %d -> %d", rel, len(src), len(norm)))
 			}
 			if _, err := toml.Decode(string(norm), &v); err == nil {
 				got = "accept"
@@ -324,24 +359,22 @@ func TestDifferential(t *testing.T) {
 				got, viaInt64 = "accept", true
 				if want, ok := int64A[rel]; ok {
 					if a, ok := designInt64A(norm); !ok || a != want {
-						t.Errorf("%s: a = %v (ok %v) after the int64 path, tomllib loads %v", rel, a, ok, want)
+						problems = append(problems, fmt.Sprintf("%s: a = %v (ok %v) after the int64 path, tomllib loads %v", rel, a, ok, want))
 					}
 				}
 			}
 		}
 		if got != live {
-			t.Errorf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live)
+			problems = append(problems, fmt.Sprintf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live))
 		}
 		if viaInt64 != int64Rows[rel] && strings.Contains(rel, "/forms/") {
-			t.Errorf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel])
+			problems = append(problems, fmt.Sprintf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel]))
 		}
 		if want, ok := designValues[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
-			t.Errorf("%s: decoded %#v, tomllib loads %#v", rel, v, want)
+			problems = append(problems, fmt.Sprintf("%s: decoded %#v, tomllib loads %#v", rel, v, want))
 		}
 	}
-	if seen != len(designVerdicts) {
-		t.Errorf("oracle rows named %d of the %d design-measured forms", seen, len(designVerdicts))
-	}
+	return problems
 }
 
 // int64A is tomllib's a for the int64 exception files whose first line
