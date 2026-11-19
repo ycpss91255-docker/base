@@ -8320,7 +8320,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (6)
+### test/bats/unit/suite_prereq_spec.bats (7)
 
 | Test | Description |
 |------|-------------|
@@ -8329,6 +8329,7 @@ runs).
 | `prereq: missing HOST_UID and HOST_GID are each named (base#1423)` | the four compose tests need HOST_UID and HOST_GID (compose interpolates them with a required-variable form). A bare container has neither, and the check must say so by variable name rather than let the compose tests fail one by one. |
 | `prereq: every missing item is reported in a single refusal (base#1423)` | a person fixing a bare run should not have to rerun once per missing item; every gap is reported in the one refusal. |
 | `prereq: the system dispatch needs no .prev-release/tags.txt (base#1423)` | `just test system` and the System Test CI job run ci-system without the prev-release step, so the system dispatch never reads tags.txt. It must not be refused for it (HOST_UID / HOST_GID stay required). |
+| `prereq: a bare main --ci refuses by name before any phase runs (base#1423)` | the check is only worth anything if the in-container dispatch runs it before any phase. The cases above call the function directly, so an entry point that stopped calling it would still pass them all; this one drives `main --ci` itself, a bare container run of the whole suite with neither host id and no fixture, and every phase stubbed to a marker. |
 | `prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)` | the system exemption covers the fixture only; the host ids are still demanded. |
 
 ### test/bats/unit/system_paths_spec.bats (9)

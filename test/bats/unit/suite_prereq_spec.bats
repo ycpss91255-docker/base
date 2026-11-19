@@ -106,6 +106,41 @@ _seed_tags() {
   assert_output ""
 }
 
+# why: the check is only worth anything if the in-container dispatch runs
+# it before any phase. The cases above call the function directly, so an
+# entry point that stopped calling it would still pass them all; this one
+# drives `main --ci` itself, a bare container run of the whole suite with
+# neither host id and no fixture, and every phase stubbed to a marker.
+@test "prereq: a bare main --ci refuses by name before any phase runs (base#1423)" {
+  local _log="${BATS_TEST_TMPDIR}/phases.log"
+  # The selectors are cleared so this is the plain whole-suite dispatch,
+  # not the one this spec itself is running under.
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u BATS_INTEGRATION -u BATS_ONLY -u COVERAGE -u COVERAGE_PATH \
+      -u COVERAGE_SHARD -u COVERAGE_LOCAL_JOBS -u LINT_ONLY -u LINT_TOOL \
+      -u LINT_GROUP -u HOST_UID -u HOST_GID \
+      FAKE_ROOT="${FAKE_ROOT}" PHASE_LOG="${_log}" bash -c '
+    source /source/script/test/test.sh
+    # REPO_ROOT is readonly and is the real checkout, which may or may not
+    # carry a .prev-release; the real check is kept and only pointed at the
+    # empty scratch tree, so the call from main is what is under test.
+    eval "$(declare -f _check_suite_prerequisites \
+      | sed "1s/_check_suite_prerequisites/_real_check_suite_prerequisites/")"
+    _check_suite_prerequisites() { _real_check_suite_prerequisites "${FAKE_ROOT}" "${2:-0}"; }
+    _run_all_lint_tools() { echo lint >> "${PHASE_LOG}"; }
+    _run_tests()          { echo bats >> "${PHASE_LOG}"; }
+    _run_coverage()       { echo coverage >> "${PHASE_LOG}"; }
+    _run_system()         { echo system >> "${PHASE_LOG}"; }
+    _fix_permissions()    { :; }
+    main --ci
+  '
+  assert_failure
+  assert_output --partial ".prev-release/tags.txt"
+  assert_output --partial "HOST_UID"
+  assert_output --partial "HOST_GID"
+  assert [ ! -e "${_log}" ]
+}
+
 # why: the system exemption covers the fixture only; the host ids are
 # still demanded.
 @test "prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)" {
