@@ -167,7 +167,7 @@ _probe_apk_packages() {
         END { if (_buf != "") { print _buf } }
       ' \
     | awk '
-        /apk[[:space:]]+add/ {
+        /apk(-retry)?[[:space:]]+add/ {
           _seen = 0
           for (_i = 1; _i <= NF; _i++) {
             if ($_i == "add") { _seen = 1; continue }

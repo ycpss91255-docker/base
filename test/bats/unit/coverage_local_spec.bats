@@ -35,6 +35,8 @@ bats_require_minimum_version 1.5.0
 
 setup() {
   export LOG_FORMAT=text
+  # A caller's exported work dir is not this test's (base#1420).
+  unset COVERAGE_LOCAL_WORKDIR
   load "${BATS_TEST_DIRNAME}/test_helper"
   create_mock_dir
 }
