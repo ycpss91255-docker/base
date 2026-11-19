@@ -1071,11 +1071,11 @@ _gate_record() {
     /source/dist/script/docker/lib/log.sh "$@" 2>&1
 }
 
-# _ok_lines <gate> -- the ok lines of every gate before <gate> (all six
-# when <gate> is empty), admission first.
+# _ok_lines <gate> -- the ok lines of every gate before <gate> (all seven
+# when <gate> is empty), admission first, fuzz (base#1850) last.
 _ok_lines() {
   local _g
-  for _g in admission fmt vet lint race coverage; do
+  for _g in admission fmt vet lint race coverage fuzz; do
     [[ "${_g}" == "${1}" ]] && break
     printf 'gate=%s ok\n' "${_g}"
   done
@@ -2133,6 +2133,36 @@ _glibc_getconf() {
   printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/rerun.2.out"
   cp "${S}/canned/rerun.err" "${S}/canned/rerun.2.err"
   cp "${S}/canned/rerun.rc" "${S}/canned/rerun.2.rc"
+  _run_redpath rerun
+  assert_equal "${status}" 1
+  assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
+}
+
+# why: The test stage's fuzz gate (base#1850) prints gate=fuzz ok after
+# coverage, so an unchanged copy's build prints seven ok lines. The rerun
+# case must pass on exactly those seven, written out here rather than read
+# from _ok_lines, and a call whose build stopped printing the fuzz line --
+# the six lines before it -- must fail stdout_mismatch, else a fuzz RUN the
+# cache served, or one dropped, reads as green.
+@test "config_gen_redpath.sh: both rerun calls pass on the seven ok lines ending in fuzz, and a call missing the fuzz line fails stdout_mismatch (base#1850)" {
+  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
+  local _seven
+  _seven='gate=admission ok
+gate=fmt ok
+gate=vet ok
+gate=lint ok
+gate=race ok
+gate=coverage ok
+gate=fuzz ok'
+  _redpath_repo
+  printf '%s\n' "${_seven}" > "${S}/canned/rerun.out"
+  printf '%s\n' "${_seven}" > "${S}/canned/rerun.2.out"
+  cp "${S}/canned/rerun.err" "${S}/canned/rerun.2.err"
+  cp "${S}/canned/rerun.rc" "${S}/canned/rerun.2.rc"
+  _run_redpath rerun
+  assert_success
+  rm -rf "${S}"/runner.* "${S}"/calls.* "${S}/nested"
+  printf '%s\n' "${_seven}" | sed '$d' > "${S}/canned/rerun.2.out"
   _run_redpath rerun
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
