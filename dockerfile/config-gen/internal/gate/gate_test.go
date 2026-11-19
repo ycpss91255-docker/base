@@ -176,47 +176,54 @@ func TestCheckClosesMultiLineLiteralAtLastQuote(t *testing.T) {
 
 // A line ending outside a string token is refused exactly when the
 // innermost open container is an inline table; inside an array (at any
-// depth) or inside a multi-line string it is legal. Verdicts come from
-// the pinned-image tomllib and BurntSushi v1.6.0 (base#1441 design §1g):
-// tomllib refuses every refused row and accepts every nil row, while
-// BurntSushi accepts all of them. The position is the first byte (LF, or
-// the CR of a CRLF) of that line ending, counted by hand, e.g. r2:
+// depth) or inside a multi-line string it is legal. tomllib (the
+// pinned-image probe, base#1441 design §1g) refuses every refused row and
+// accepts every nil row; each refused row's decoderAccepts records
+// BurntSushi v1.6.0's verdict, and a toml.Decode control asserts it, so
+// the rows the decoder already refuses are marked. The position is the
+// first byte (LF, or the CR of a CRLF) of that line ending, counted by
+// hand, e.g. r2:
 // a(1) ' '(2) =(3) ' '(4) {(5) ' '(6) b(7) ' '(8) =(9) ' '(10) 1(11)
 // ' '(12) #(13) ' '(14) c(15) LF(16).
 func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 	for _, tc := range []struct {
-		name, src string
-		line, col int
+		name, src      string
+		line, col      int
+		decoderAccepts bool
 	}{
-		{"r1", "a = {\nb = 1}\n", 1, 6},
-		{"r2", "a = { b = 1 # c\n}\n", 1, 16},
-		{"r3", "a = { b = [1,\n2],\n c = 3 }\n", 2, 4},
-		{"r4", "a = { b = [ { c = 1,\n d = 2 } ] }\n", 1, 21},
-		{"r5", "a = { b = 1\n, c = 2 }\n", 1, 12},
-		{"r6", "a = { b = [1] \n}\n", 1, 15},
-		{"r1-form", "a = {b = 1,\n c = 2}\n", 1, 12},
-		{"crlf", "a = {\r\nb = 1}\r\n", 1, 6},
+		{"r1", "a = {\nb = 1}\n", 1, 6, true},
+		{"r2", "a = { b = 1 # c\n}\n", 1, 16, true},
+		{"r3", "a = { b = [1,\n2],\n c = 3 }\n", 2, 4, true},
+		{"r4", "a = { b = [ { c = 1,\n d = 2 } ] }\n", 1, 21, true},
+		{"r5", "a = { b = 1\n, c = 2 }\n", 1, 12, true},
+		{"r6", "a = { b = [1] \n}\n", 1, 15, true},
+		{"r1-form", "a = {b = 1,\n c = 2}\n", 1, 12, true},
+		{"crlf", "a = {\r\nb = 1}\r\n", 1, 6, true},
 		// A comment stops before the CRLF that ends its line, so the
 		// refusal names that CR: r2 with CR(16) LF(17). tomllib refuses it
 		// ("Unclosed inline table", rc=1) and BurntSushi v1.6.0 decodes it
 		// to map[a:map[b:1]] (run 2026-11-19, base#1850).
-		{"r2-crlf", "a = { b = 1 # c\r\n}\r\n", 1, 16},
+		{"r2-crlf", "a = { b = 1 # c\r\n}\r\n", 1, 16, true},
 		// A basic string left open at its line end stops before that
 		// line's CRLF in the same way: a(1) ' '(2) =(3) ' '(4) {(5) ' '(6)
 		// b(7) ' '(8) =(9) ' '(10) "(11) x(12) CR(13). Both parsers refuse
 		// this row (tomllib "Illegal character", BurntSushi "strings
 		// cannot contain newlines", run 2026-11-19); it pins the column
 		// only (base#1850).
-		{"basic-crlf", "a = { b = \"x\r\n}\r\n", 1, 13},
+		{"basic-crlf", "a = { b = \"x\r\n}\r\n", 1, 13, false},
 		// Between a key and its `=`, and between the `=` and the value,
 		// the structural pass refuses the line ending where it stands;
 		// tomllib (run 2026-11-02) refuses both at the same column,
 		// "Expected '=' after a key in a key/value pair (at line 1,
 		// column 7)" and "Invalid value (at line 1, column 9)", and
 		// BurntSushi v1.6.0 refuses both too (base#1441).
-		{"key-eq", "a = {b\n= 1}\n", 1, 7},
-		{"eq-value", "a = {b =\n1}\n", 1, 9},
+		{"key-eq", "a = {b\n= 1}\n", 1, 7, false},
+		{"eq-value", "a = {b =\n1}\n", 1, 9, false},
 	} {
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); (err == nil) != tc.decoderAccepts {
+			t.Errorf("%s: toml.Decode(%q) = %v, want accepted=%v", tc.name, tc.src, err, tc.decoderAccepts)
+		}
 		err := Check("t.toml", []byte(tc.src))
 		var r *Refusal
 		if !errors.As(err, &r) {
