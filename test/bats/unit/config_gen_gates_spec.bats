@@ -290,6 +290,30 @@ _run_df_body() {
   assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
 }
 
+# why: go test -fuzz reads and writes its generated corpus under
+# GOCACHE/fuzz, which is inside the go-build cache mount the RUN shares
+# with every other build on the builder. base#1441's review round 2
+# recorded a red redpath build (green case untrack) that stopped in
+# FuzzRun with `cannot unmarshal empty string`, a corpus file no commit
+# planted. The fuzz RUN (base#1850) mounts a tmpfs on GOCACHE/fuzz, so
+# each search starts from the committed seeds alone and keeps nothing
+# past the RUN.
+@test "Dockerfile.config-gen: the fuzz RUN mounts a private tmpfs on the fuzz cache inside each go-build cache mount (base#1850)" {
+  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
+  local _run _caches _c
+  _df_instructions > "${S}/df"
+  _run="$(awk -F'\t' '$1 == "test" && $2 ~ /^RUN / && /gate=fuzz ok/' "${S}/df")"
+  [[ -n "${_run}" ]] || fail "no test-stage RUN prints gate=fuzz ok"
+  _caches="$(grep -oE -- '--mount=type=cache,[^ ]*' <<<"${_run}" \
+    | grep -oE 'target=[^, ]*go-build' | sed 's/^target=//')" || true
+  [[ -n "${_caches}" ]] || fail "the fuzz RUN mounts no go-build cache"
+  [[ "${_run}" != *GOCACHE=* ]] || fail "the fuzz RUN moves GOCACHE off the mounts this test reads"
+  for _c in ${_caches}; do
+    grep -qE -- "--mount=type=tmpfs,target=${_c}/fuzz( |$)" <<<"${_run}" \
+      || fail "no tmpfs on ${_c}/fuzz in the fuzz RUN"
+  done
+}
+
 # why: The race RUN and coverage.sh each ran go test over every package, so
 # the tests ran twice per build (base#1547). Now the race RUN's go test is
 # the only one in the test stage: it runs under -race and writes one
