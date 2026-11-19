@@ -23,6 +23,9 @@ const (
 	// spaces or tabs, by the `}` that closes an inline table (TOML 1.1
 	// only).
 	ReasonInlineTrailingComma
+	// ReasonTimeNoSeconds is a time value written as HH:MM, without the
+	// seconds the TOML 1.0 partial-time requires (TOML 1.1 only).
+	ReasonTimeNoSeconds
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -62,7 +65,9 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // offending byte of src (base#1850): the backslash of a `\e` or `\x`
 // escape in a basic or multi-line basic string, or the first byte (LF,
 // or the CR of a CRLF) of a line ending outside a string or comment
-// whose innermost open `[` / `{` container is an inline table. The same
+// whose innermost open `[` / `{` container is an inline table, the comma
+// of an inline table's trailing comma, or the first byte of a bare
+// token that is a time without seconds. The same
 // bytes in a comment, a literal string or a multi-line literal are TOML
 // 1.0 and are accepted.
 func Check(label string, src []byte) error {
@@ -91,7 +96,8 @@ func Check(label string, src []byte) error {
 // stack of open `[` and `{` containers, and returns the refusal for the
 // first line ending there whose innermost open container is `{`, or for
 // the first comma there followed, after optional spaces or tabs, by the
-// `}` that closes an inline table.
+// `}` that closes an inline table, or for the first bare token there
+// that is a time without seconds.
 func structural(label string, src []byte, from, to int, open *[]byte) *Refusal {
 	for i := from; i < to; i++ {
 		switch c := src[i]; c {
@@ -111,6 +117,13 @@ func structural(label string, src []byte, from, to int, open *[]byte) *Refusal {
 			}
 			if n := len(*open); n > 0 && (*open)[n-1] == '{' && j < len(src) && src[j] == '}' {
 				return commaRefusal(label, src, i)
+			}
+		default:
+			if tok := barePattern.Find(src[i:to]); tok != nil {
+				if dateRule(tok) {
+					return timeRefusal(label, src, i)
+				}
+				i += len(tok) - 1
 			}
 		}
 	}
@@ -133,6 +146,12 @@ func newlineRefusal(label string, src []byte, off int) *Refusal {
 // src inside an inline table.
 func commaRefusal(label string, src []byte, off int) *Refusal {
 	return refusal(label, src, off, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
+}
+
+// timeRefusal is the refusal for the time without seconds whose bare
+// token starts at offset off of src.
+func timeRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonTimeNoSeconds, "time without seconds is not TOML 1.0")
 }
 
 // position returns the 1-based line and byte column of offset off in src.
