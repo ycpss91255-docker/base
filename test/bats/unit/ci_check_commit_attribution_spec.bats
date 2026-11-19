@@ -73,3 +73,18 @@ _run_pr() {
   assert_equal "${status}" 1
   assert_output --partial "::error::commit ${_sha}"
 }
+
+# why: Git accepts a space before a trailer's colon and prints the trailer in
+# canonical `key: value` form. A check that ran the marker list over the raw
+# body alone would pass `<key> : <model> <other address>`, which names the
+# model and carries no noreply address, so this pins exit 1 and the sha
+# (base#1989).
+@test "check_commit_attribution.sh: a co-author trailer with a space before the colon naming the model fails and names the sha (base#1989)" {
+  _commit "$(printf 'feat: x\n\n%s : %s <x@example.com>' "$(_cab)" "$(_model)")"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}"
+}
