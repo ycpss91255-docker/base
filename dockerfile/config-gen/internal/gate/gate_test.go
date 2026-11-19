@@ -366,6 +366,64 @@ func TestCheckRefusesTimeWithoutSeconds(t *testing.T) {
 	}
 }
 
+// A date-bearing value whose year is 0000 is refused at the value's first
+// byte. tomllib (CPython 3.13.13 Lib/tomllib, measured 2026-11-02 on
+// base#1441) refuses each row with "Invalid date or datetime" at that byte,
+// and the live oracle refuses forms/date-year0-{local-date,local-datetime,
+// offset} (base#1851 probe), while BurntSushi v1.6.0 accepts every row, so
+// the gate is the only thing between these bytes and a parse. Columns are
+// counted by hand: a(1) ' '(2) =(3) ' '(4) 0(5); in the array row [(5)
+// 0(6); in the inline-table row h(1) ' '(2) =(3) ' '(4) {(5) x(6) ' '(7)
+// =(8) ' '(9) 0(10). Year 0001 and 9999 are dates tomllib accepts, and the
+// same text inside strings, keys, a header and a comment is not a date
+// value, so those controls are nil.
+func TestCheckRefusesYearZeroDate(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"local-date", "a = 0000-01-01\n", 1, 5},
+		{"local-datetime", "b = 0000-01-01T00:00:00\n", 1, 5},
+		{"offset-datetime", "c = 0000-01-01T00:00:00Z\n", 1, 5},
+		{"local-datetime-space", "e = 0000-01-01 00:00:00\n", 1, 5},
+		{"array", "g = [0000-01-01]\n", 1, 6},
+		{"inline-table", "h = {x = 0000-01-01T00:00:00Z}\n", 1, 10},
+	} {
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err != nil {
+			t.Fatalf("%s: toml.Decode(%q) = %v, want nil (the decoder accepts year 0000)", tc.name, tc.src, err)
+		}
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonDateRange {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonDateRange}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, src := range []string{
+		"a = 0001-01-01\n",
+		"b = 0001-01-01T00:00:00\n",
+		"c = 0001-01-01T00:00:00Z\n",
+		"a = 9999-12-31T23:59:59Z\n",
+		"s = \"0000-01-01\"\n",
+		"s = '0000-01-01T00:00:00Z'\n",
+		"s = \"\"\"0000-01-01\"\"\"\n",
+		"\"0000-01-01\" = 1\n",
+		"0000-01-01 = 1\n",
+		"x.0000-01-01 = 1\n",
+		"[0000-01-01]\n",
+		"a = 1 # 0000-01-01T00:00:00Z\n",
+	} {
+		if err := Check("t.toml", []byte(src)); err != nil {
+			t.Errorf("Check(%q) = %v, want nil", src, err)
+		}
+	}
+}
+
 // A leading byte order mark is not TOML 1.0: tomllib reads the file with a
 // strict UTF-8 decode and refuses EF BB BF ("Invalid statement" at 1:1) and
 // FF FE / FE FF ("'utf-8' codec can't decode byte 0xff/0xfe in position 0"),
