@@ -2,8 +2,9 @@
 // accepts and the TOML 1.0 oracle (tomllib) refuses (base#1850): a `\e`
 // escape, a `\x` escape, a line ending inside an inline table, a trailing
 // comma in an inline table, a time without seconds, and a leading byte
-// order mark. It also refuses a date-bearing value with year 0000, which
-// BurntSushi v1.6.0 accepts and tomllib refuses (base#1851).
+// order mark. It also refuses a date-bearing value with year 0000 and a
+// datetime whose offset hour is above 23, which BurntSushi v1.6.0 accepts
+// and tomllib refuses (base#1851).
 package gate
 
 import (
@@ -36,6 +37,9 @@ const (
 	// the TOML 1.0 oracle refuses at the value's first byte as "Invalid
 	// date or datetime" (base#1851).
 	ReasonDateRange
+	// ReasonOffsetRange is a datetime whose offset hour is above 23,
+	// which the TOML 1.0 oracle refuses at the offset's sign (base#1851).
+	ReasonOffsetRange
 )
 
 // bomPrefixes is the whole list of leading byte order marks the decoder
@@ -83,7 +87,8 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // of an inline table's trailing comma, or the first byte of a bare
 // token that is a time without seconds, or the first byte of a bare
 // token after `=` or an array's opening `[` that is a date-bearing value
-// with year 0000; or the first byte of a leading byte order mark. The same bytes in a comment, a literal string or a
+// with year 0000, or the sign of a datetime's offset whose hour is
+// above 23; or the first byte of a leading byte order mark. The same bytes in a comment, a literal string or a
 // multi-line literal are TOML 1.0 and are accepted.
 func Check(label string, src []byte) error {
 	for _, p := range bomPrefixes {
@@ -156,7 +161,8 @@ func (st *scan) valueNext() bool {
 // followed, after optional spaces or tabs, by the `}` that closes an
 // inline table, or for the first bare token there that is a time
 // without seconds, or for the first bare value token there that is a
-// date-bearing value with year 0000.
+// date-bearing value with year 0000, or for the offset sign of the
+// first bare token there whose offset hour is above 23.
 func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 	for i := from; i < to; i++ {
 		switch c := src[i]; c {
@@ -202,6 +208,9 @@ func structural(label string, src []byte, from, to int, st *scan) *Refusal {
 			if dateRule(tok) {
 				return timeRefusal(label, src, i)
 			}
+			if at, ok := offsetHourOver(tok); ok {
+				return offsetRangeRefusal(label, src, i+at)
+			}
 			st.last = 'v'
 			i += len(tok) - 1
 		}
@@ -237,6 +246,12 @@ func timeRefusal(label string, src []byte, off int) *Refusal {
 // whose bare token starts at offset off of src.
 func dateRangeRefusal(label string, src []byte, off int) *Refusal {
 	return refusal(label, src, off, ReasonDateRange, "Invalid date or datetime")
+}
+
+// offsetRangeRefusal is the refusal for the offset hour above 23 whose
+// sign is at offset off of src.
+func offsetRangeRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonOffsetRange, "offset hour above 23 is not TOML 1.0")
 }
 
 // position returns the 1-based line and byte column of offset off in src.

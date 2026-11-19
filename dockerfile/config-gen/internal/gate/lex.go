@@ -31,3 +31,20 @@ var yearZeroPattern = regexp.MustCompile(`^0000-\d{2}-\d{2}`)
 func yearZero(tok []byte) bool {
 	return yearZeroPattern.Match(tok)
 }
+
+// offsetPattern matches a token that starts with an offset datetime (a
+// full date, a `T`, `t` or space delimiter and a time with seconds),
+// capturing the offset's sign and hour.
+var offsetPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?([+-])(\d{2}):\d{2}`)
+
+// offsetHourOver reports whether tok, a bare token, is an offset datetime
+// whose offset hour is above 23, which tomllib refuses at the sign and
+// BurntSushi v1.6.0 accepts (base#1851); at is the sign's offset in tok.
+func offsetHourOver(tok []byte) (at int, ok bool) {
+	m := offsetPattern.FindSubmatchIndex(tok)
+	if m == nil {
+		return 0, false
+	}
+	hour := tok[m[4]:m[5]]
+	return m[2], hour[0] > '2' || (hour[0] == '2' && hour[1] > '3')
+}
