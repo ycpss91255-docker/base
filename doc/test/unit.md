@@ -287,6 +287,15 @@ arg. The forwarding half is test/bats/integration/apk_mirror_spec.bats'.
 | `APK_MIRROR: an empty override is refused by name, not turned into an empty host (#1008)` | An empty value is the one input that would REPRODUCE the bug this knob removes: rewriting the host to nothing hands back the same misleading `no such package`, now with a mirror set, which is the worst place to leave the reader. Refusing it by name is what separates a caller mistake from the original defect. |
 | `APK_MIRROR: every stage that installs packages inherits the mirror choice (#1008)` | The file runs apk in four stages, so a knob wired into one leaves the build dying in the next -- later, and with the same misleading message. This is the assertion that names a newly added alpine stage here, on any machine, rather than on the one host that cannot reach dl-cdn and would otherwise be the only place it shows up. |
 
+### test/bats/unit/apk_retry_spec.bats (4)
+
+| Test | Description |
+|------|-------------|
+| `apk-retry: a transient apk failure is retried and then succeeds` | base#1422 -- a transient index failure must be retried; before the wrapper the build died on the first 403. |
+| `apk-retry: a lasting apk failure exits non-zero after a bounded number of tries with a clear message` | base#1422 -- a lasting failure must still fail, within a bound, and say so; an unbounded loop would hang the build instead of reporting it. |
+| `Dockerfile.test-tools: no apk add or apk update bypasses apk-retry` | base#1422 -- the first slice of the issue: every apk call in the Dockerfile goes through the wrapper. Comment lines are skipped because the file discusses `apk add` in prose more often than it runs it. |
+| `Dockerfile.test-tools: the alpine-apk base stage ships the apk-retry helper` | base#1422 -- the wrapper has to reach the image: a Dockerfile that calls apk-retry without COPYing it fails every package stage. |
+
 ### test/bats/unit/apt_retry_spec.bats (5)
 
 An image build failed on one `404 Not Found` from a skewed apt mirror (base
