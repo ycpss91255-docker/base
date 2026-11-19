@@ -149,6 +149,27 @@ _run_pr() {
   assert_output --partial "no AI attribution in 1 commit(s)"
 }
 
+# why: A trailer value can put the address after a space, or next to a
+# comma, a semicolon, a colon, a quote or a parenthesis, instead of inside
+# angle brackets. A check that read the address only up to angle brackets
+# would see it glued to that character and pass, so each separator gets its
+# own commit and every sha must be listed (base#1989).
+@test "check_commit_attribution.sh: the noreply address next to each separator in a trailer value fails for every commit (base#1989)" {
+  local _shas=() _value
+  for _value in "a@example.com $(_addr)" "a@example.com,$(_addr)" \
+    "a@example.com;$(_addr)" "mailto:$(_addr)" "\"$(_addr)\"" "Bot ($(_addr))"; do
+    _commit "$(printf 'feat: x\n\nCc: %s' "${_value}")"
+    _shas+=("$(git -C "${REPO}" rev-parse HEAD)")
+  done
+
+  _run_pr
+  assert_equal "${status}" 1
+  local _sha
+  for _sha in "${_shas[@]}"; do
+    assert_output --partial "::error::commit ${_sha}: noreply address in message"
+  done
+}
+
 # why: Git accepts a space before a trailer's colon and prints the trailer in
 # canonical `key: value` form. A check that ran the marker list over the raw
 # body alone would pass `<key> : <model> <other address>`, which names the
