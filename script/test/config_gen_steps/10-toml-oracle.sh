@@ -18,17 +18,19 @@
 # every *.toml at any depth under internal/gate/testdata/forms and
 # internal/gate/testdata/toml-test, and every testdata/corpus/s*/*.toml,
 # the shared corpus internal/testcorpus.Glob reads (base#1851). It goes
-# to one `docker run`, --network none, as a tar on stdin. The container
-# runs the oracle program as `python3 -I -c`, which answers one
-# `<rel>\taccept|refuse\t<sha256>` line per file, in the tar's order:
-# `tomllib.loads` on the file's bytes decoded strictly as UTF-8, a TOML
-# file's encoding, so a byte that is not UTF-8 is refuse, with the SHA-256
-# of the bytes as read from the tar, so the differential test can hold
-# each verdict to the file it reads (review round 2, base#1851). Those
-# answers are written to $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv. Only
-# a UnicodeDecodeError or a TOMLDecodeError is refuse: any other exception
-# (a RecursionError on a deeply nested value) is not tomllib's judgement,
-# so the program exits non-zero and the step refuses as reason=image.
+# to one `docker run`, --network none, as a tar on stdin, and the
+# container runs the oracle program as `python3 -I -c`. The program
+# answers one `<rel>\taccept|refuse\t<sha256>` line per file, in the
+# tar's order, and the step writes those answers to
+# $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
+#   verdict: `tomllib.loads` on the file's bytes decoded strictly as
+#     UTF-8, a TOML file's encoding. A UnicodeDecodeError or a
+#     TOMLDecodeError is refuse. Any other exception (a RecursionError on
+#     a deeply nested value) is not tomllib's judgement, so the program
+#     exits non-zero and the step refuses as reason=image.
+#   sha256: of the bytes as read from the tar, so the differential test
+#     can hold each verdict to the file it reads (review round 2,
+#     base#1851).
 #
 # Refusal: an input path with a character outside [A-Za-z0-9._/-] is
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
