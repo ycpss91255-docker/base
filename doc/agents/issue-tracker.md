@@ -76,3 +76,8 @@ because a bare number resolves against whichever repo the reader happens to be
 standing in. GitHub shares one number space across issues and pull requests,
 so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to
 `gh issue view 42`.
+
+## Commit and PR sizing
+
+How big a PR or a commit may be, and how to split larger work, is in
+`doc/agents/commit-and-pr-sizing.md`.

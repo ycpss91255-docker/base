@@ -379,6 +379,8 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: sc github-release koalaman/shellcheck' \
     'ARG SHELLCHECK_VERSION=v0.10.0' \
+    'ARG SC_SHA256_AMD64=aa' \
+    'ARG SC_SHA256_ARM64=bb' \
     'RUN curl -fsSL \\' \
     '  "https://example.invalid/releases/download/${SHELLCHECK_VERSION}/sc.tar.xz"'
   _lint
@@ -392,6 +394,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: ba github-release bats-core/bats-assert' \
     'ARG BATS_ASSERT_VERSION=v2.1.0' \
+    'ARG BA_COMMIT=aa' \
     'RUN git clone --depth 1 -b "${BATS_ASSERT_VERSION}" https://x/y /z'
   _lint
   assert_success
@@ -434,7 +437,9 @@ _one_good_pin() {
 @test "_run_pin_coverage: a pinned marker satisfies the detector" {
   _dockerfile \
     '# tool-pin: hadolint github-release hadolint/hadolint' \
-    'ARG HADOLINT_VERSION=v2.12.0'
+    'ARG HADOLINT_VERSION=v2.12.0' \
+    'ARG HADOLINT_SHA256_AMD64=aa' \
+    'ARG HADOLINT_SHA256_ARM64=bb'
   _lint
   assert_success
   assert_output --partial 'pin-coverage lint: clean'
@@ -448,6 +453,7 @@ _one_good_pin() {
   _dockerfile \
     '# tool-pin: seed github-release owner/seed' \
     'ARG SEED_VERSION=1.0.0' \
+    'ARG SEED_COMMIT=aa' \
     '# tool-pin: unpinned base-image -- a moving tag, consumer-facing' \
     'FROM ubuntu:24.04 AS sys'
   _lint
@@ -1194,7 +1200,8 @@ _one_good_pin() {
   _one_good_pin
   _dockerfile \
     '# tool-pin: kcov github-release SimonKagstrom/kcov' \
-    'ARG KCOV_VERSION=v43'
+    'ARG KCOV_VERSION=v43' \
+    'ARG KCOV_COMMIT=aa'
   _lint
   assert_success
 }

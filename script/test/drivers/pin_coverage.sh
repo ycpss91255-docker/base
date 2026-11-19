@@ -118,6 +118,10 @@
 # shellcheck source=script/watch/lib.sh
 source "${SCRIPT_DIR}/../watch/lib.sh"
 
+# Transitional: pins that still have no checksum, each owned by an open
+# issue. Delete a line when its checksum lands.
+_PIN_CHECKSUM_PENDING=()
+
 _run_pin_coverage() {
   echo "--- Running pin-coverage lint ---"
 
@@ -244,6 +248,46 @@ reporting it:
   ${_PIN_MARKER} unpinned <name> -- <why>
 \`${_PIN_MARKER} ignore -- <why>\` is for a line whose shape matched but
 which is not a third-party version. See script/watch/lib.sh."
+    return 1
+  fi
+
+  # A github-release pin in the test-tools Dockerfile is a download, and
+  # a download with no checksum ARG is unverified (base#1675).
+  local _tt_file="dockerfile/Dockerfile.test-tools" _up _p _ok _pending
+  # True when the test-tools Dockerfile has a non-empty `ARG <name>=`.
+  _tt_has_arg() { grep -qE "^ARG ${1}=.+" "${REPO_ROOT}/${_tt_file}"; }
+  local -a _unverified=()
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
+      _current _file _line _cksum; do
+    [[ -z "${_name}" ]] && continue
+    [[ "${_state}" == "${_PIN_STATE_PINNED}" ]] || continue
+    [[ "${_resolver}" == "github-release" ]] || continue
+    [[ "${_file}" == "${_tt_file}" ]] || continue
+    _up="${_name^^}"
+    _up="${_up//-/_}"
+    _ok=0
+    if _tt_has_arg "${_up}_SHA256_AMD64" && _tt_has_arg "${_up}_SHA256_ARM64"; then
+      _ok=1
+    elif _tt_has_arg "${_up}_COMMIT"; then
+      _ok=1
+    fi
+    _pending=0
+    for _p in "${_PIN_CHECKSUM_PENDING[@]}"; do
+      [[ "${_p%% *}" == "${_name}" ]] && _pending=1
+    done
+    if [[ "${_pending}" -eq 1 ]]; then
+      if [[ "${_ok}" -eq 1 ]]; then
+        _unverified+=("${_file}:${_line}: ${_name} is in _PIN_CHECKSUM_PENDING but already has a checksum ARG: stale pending entry, delete it")
+      fi
+    elif [[ "${_ok}" -eq 0 ]]; then
+      _unverified+=("${_file}:${_line}: ${_name} needs ${_up}_SHA256_AMD64 and ${_up}_SHA256_ARM64, or ${_up}_COMMIT")
+    fi
+  done <<< "${_table}"
+  if [[ "${#_unverified[@]}" -gt 0 ]]; then
+    _die ci_pin_coverage \
+      "a github-release pin in ${_tt_file} has no checksum ARG:
+$(printf '  %s\n' "${_unverified[@]}")
+Add the per-arch sha256 ARGs (or a commit ARG for a git clone) next to the version."
     return 1
   fi
 
