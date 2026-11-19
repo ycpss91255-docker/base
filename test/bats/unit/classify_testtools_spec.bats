@@ -295,7 +295,8 @@ _assert_keys() {
 # selection belongs to base#1604), and the workflow's job list is main's
 # (`git show origin/main:.github/workflows/self-test.yaml`, re-measured in
 # redesign r6). base#1588 adds the two ungated test-tools-image builders
-# after classify.
+# after classify. base#1989 adds the ungated commit-attribution job before
+# ci-rollup.
 @test "self-test.yaml: mutation-roster has no if: and the job list is main's (base#1584)" {
   run yq '.jobs."mutation-roster" | has("if")' "${SELF_WF}"
   assert_output false
@@ -318,6 +319,7 @@ system
 worker-selftest
 config-gen-gates
 config-gen-redpath
+commit-attribution
 ci-rollup
 release"
 }
