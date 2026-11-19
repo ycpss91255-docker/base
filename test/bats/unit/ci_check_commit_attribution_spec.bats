@@ -148,6 +148,23 @@ _run_pr() {
   assert_not_equal "${status}" 0
 }
 
+# why: The head end needs the same guard as the base end. A check that
+# verified only BASE_SHA would hand an unresolvable HEAD_SHA to
+# `git rev-list`, read an empty walk and print "no AI attribution in 0
+# commit(s)" with exit 0. So a pull_request event whose HEAD_SHA does not
+# resolve must exit non-zero without that pass line (base#1989).
+@test "check_commit_attribution.sh: a pull_request event whose head sha does not resolve fails (base#1989)" {
+  _commit "feat: x"
+  cd "${REPO}" || return 1
+  export EVENT_NAME=pull_request
+  export BASE_SHA="${BASE}"
+  export HEAD_SHA="0123456789abcdef0123456789abcdef01234567"
+
+  run bash "${CHECK}"
+  assert_not_equal "${status}" 0
+  refute_output --partial "no AI attribution in"
+}
+
 # why: Every other pull_request spec expects a failure, so a check that
 # reported every commit in a resolvable range and exited 1 would pass them
 # all. A range of clean commits must exit 0 with no `::error::` line and
