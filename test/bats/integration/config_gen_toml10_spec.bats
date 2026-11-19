@@ -116,3 +116,17 @@ _run_calls() {
   _got="$(tar -tf "${S}/in.tar" | sed -e 's|^\./||' -e '/\/$/d')"
   assert_equal "${_got}" "${_want}"
 }
+
+# why: When the pinned image cannot answer -- the container exits non-zero
+# -- whatever it printed is not tomllib's verdict on the input set. The
+# step must refuse under the five-point refusal test: status 1, nothing on
+# stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/
+# directory left for the build to read as an answer.
+@test "10-toml-oracle.sh: a container that exits non-zero is config_gen_toml_oracle_failed reason=image, no toml-oracle/ left (base#1851)" {
+  _plant forms/a.toml
+  printf '1\n' > "${S}/run.rc"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=image
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
