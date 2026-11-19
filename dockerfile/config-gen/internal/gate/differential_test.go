@@ -34,3 +34,41 @@ func TestLoadOracleVerdictsFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+// The verdict rows must name exactly the TOML files under this package's
+// testdata (base#1851): a file with no row was never asked of tomllib,
+// and a row with no file is a verdict for something the differential
+// cannot read. Each direction fails naming the path; the same set in
+// another order passes. Rows are the step's `<rel>\t<verdict>` lines,
+// rel taken from dockerfile/config-gen.
+func TestCheckOracleRowsSetEquality(t *testing.T) {
+	const a = "internal/gate/testdata/toml-test/valid/a.toml"
+	const b = "internal/gate/testdata/toml-test/invalid/b.toml"
+	cases := []struct {
+		name  string
+		rows  []string
+		files []string
+		want  string // "" = nil error; otherwise a substring of the error
+	}{
+		{"equal sets", []string{b + "\trefuse", a + "\taccept"}, []string{a, b}, ""},
+		{"missing row", []string{a + "\taccept"}, []string{a, b}, b},
+		{"extra row", []string{a + "\taccept", b + "\trefuse"}, []string{a}, b},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkOracleRows(tc.rows, tc.files)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("checkOracleRows(%q, %q) = %v, want nil", tc.rows, tc.files, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("checkOracleRows(%q, %q) = nil, want an error naming %q", tc.rows, tc.files, tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("checkOracleRows(%q, %q) error = %q, want it to name %q", tc.rows, tc.files, err.Error(), tc.want)
+			}
+		})
+	}
+}
