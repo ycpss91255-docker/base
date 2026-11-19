@@ -102,3 +102,18 @@ _run_pr() {
   assert_equal "${status}" 1
   assert_output --partial "::error::commit ${_sha}"
 }
+
+# why: The address as the committer identity is attribution too, and a
+# commit can carry it there with a clean message and a human author. A check
+# that read the author email for both identities would pass such a commit,
+# so this pins exit 1 and the sha when only the committer email is the
+# noreply address (base#1989).
+@test "check_commit_attribution.sh: a committer email equal to the noreply address fails and names the sha (base#1989)" {
+  GIT_COMMITTER_EMAIL="$(_addr)" git -C "${REPO}" commit -q --allow-empty -m "feat: x"
+  local _sha
+  _sha="$(git -C "${REPO}" rev-parse HEAD)"
+
+  _run_pr
+  assert_equal "${status}" 1
+  assert_output --partial "::error::commit ${_sha}"
+}
