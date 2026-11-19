@@ -49,7 +49,9 @@ _run_pr() {
 
 # why: The trailer the agent tooling adds by default is the case the check
 # exists for. A check that always passed would pass every clean-commit spec,
-# so this one pins exit 1 and the offending sha in the output (base#1989).
+# so this one pins exit 1 and the offending sha in the output. The output
+# must also say which marker the commit carries, so it names the co-author
+# trailer and not the generated-with footer (base#1989).
 @test "check_commit_attribution.sh: a co-author trailer naming the model fails and names the sha (base#1989)" {
   _commit "$(printf 'feat: x\n\n%s: %s X <%s>' "$(_cab)" "$(_model)" "$(_addr)")"
   local _sha
@@ -57,7 +59,8 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
+  refute_output --partial "generated-with footer in message"
 }
 
 # why: The address is attribution under any trailer key, not only the
@@ -116,7 +119,7 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
 }
 
 # why: The address as the author identity is attribution even when the
@@ -288,7 +291,7 @@ _run_pr() {
 # why: The marker list has two alternatives, and the generated-with footer
 # is the one the co-author specs never reach. A check that dropped it would
 # pass a commit whose only attribution is that footer, so this pins exit 1,
-# the sha and the marker label for it (base#1989).
+# the sha and the footer's own label, not the co-author one (base#1989).
 @test "check_commit_attribution.sh: a generated-with footer naming the model fails and names the sha (base#1989)" {
   _commit "$(printf 'feat: x\n\n%s with [%s Code](https://example.com/x)' "Generated" "$(_model)")"
   local _sha
@@ -296,7 +299,8 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: generated-with footer in message"
+  refute_output --partial "co-author trailer naming the model in message"
 }
 
 # why: The hook's marker list makes the bracket before the model name
@@ -310,7 +314,7 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: generated-with footer in message"
 }
 
 # why: The hook's marker list allows any run of space after the co-author
@@ -326,7 +330,7 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
 }
 
 # why: The tooling has written the co-author key in lower case. A check that
@@ -342,7 +346,7 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
 }
 
 # why: Git reads an indented line after a trailer as its continuation, so a
@@ -356,7 +360,7 @@ _run_pr() {
 
   _run_pr
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
 }
 
 # why: The same fold can put the noreply address on the continuation line.
@@ -403,7 +407,7 @@ _run_pr() {
   _run_pr
   assert_equal "${status}" 1
   assert_output --partial "::error::commit ${_first}: noreply address in message"
-  assert_output --partial "::error::commit ${_second}: attribution marker in message"
+  assert_output --partial "::error::commit ${_second}: generated-with footer in message"
 }
 
 # _run_mg: run the check over BASE..HEAD as a merge_group event.
@@ -428,7 +432,7 @@ _run_mg() {
 
   _run_mg
   assert_equal "${status}" 1
-  assert_output --partial "::error::commit ${_sha}: attribution marker in message"
+  assert_output --partial "::error::commit ${_sha}: co-author trailer naming the model in message"
 }
 
 # why: A merge_group run walks its range rather than passing on the no-range
