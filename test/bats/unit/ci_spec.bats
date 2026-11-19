@@ -3166,6 +3166,9 @@ _kcov_slice_mock() {
     # marker still proves the coverage branch was the one taken.
     _run_coverage() { printf "COVERAGE-RAN shard=[%s]\n" "${1:-}"; }
     _fix_permissions() { :; }
+    # Routing is under test, not the bare-run prerequisites (base#1423).
+    # Whether shard 1/4 needs .prev-release depends on the live partition.
+    _check_suite_prerequisites() { :; }
     # Every selector the dispatch forwards is PINNED here, set or
     # emptied: this block inherits whatever the container was started
     # with, and each selector the dispatch reads before the shard would
