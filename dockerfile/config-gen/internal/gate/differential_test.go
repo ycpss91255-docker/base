@@ -138,11 +138,16 @@ var designVerdicts = map[string]string{
 	"internal/gate/testdata/forms/offset-hour24.toml":             "refuse",
 	"internal/gate/testdata/forms/offset-hour23.toml":             "accept",
 
+	// A year-0000 date as an array's second value (review round 1,
+	// base#1851).
+	"internal/gate/testdata/forms/date-year0-array.toml": "refuse",
+
 	// tomllib loads a float literal past float64 max
 	// as inf, keeps float64 max and maps underflow to 0.
 	"internal/gate/testdata/forms/float-over.toml":       "accept",
 	"internal/gate/testdata/forms/float-over-neg.toml":   "accept",
 	"internal/gate/testdata/forms/float-over-mixed.toml": "accept",
+	"internal/gate/testdata/forms/float-over-array.toml": "accept",
 	"internal/gate/testdata/forms/float-over-int64.toml": "accept",
 	"internal/gate/testdata/forms/float-max.toml":        "accept",
 	"internal/gate/testdata/forms/float-under.toml":      "accept",
@@ -213,6 +218,12 @@ var designValues = map[string]map[string]any{
 		"b":     []any{math.Inf(1), int64(2)},
 		"c":     map[string]any{"d": math.Inf(1)},
 		"s":     "1e999",
+	},
+	// An overflowing literal after an array's comma, and after a comment
+	// and a line ending (review round 1, base#1851).
+	"internal/gate/testdata/forms/float-over-array.toml": {
+		"a": []any{int64(1), math.Inf(1)},
+		"b": []any{math.Inf(-1)},
 	},
 	"internal/gate/testdata/forms/float-max.toml":   {"a": 1.7976931348623157e308},
 	"internal/gate/testdata/forms/float-under.toml": {"a": float64(0)},

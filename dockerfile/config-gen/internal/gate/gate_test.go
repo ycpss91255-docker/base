@@ -389,6 +389,13 @@ func TestCheckRefusesYearZeroDate(t *testing.T) {
 		{"local-datetime-space", "e = 0000-01-01 00:00:00\n", 1, 5},
 		{"array", "g = [0000-01-01]\n", 1, 6},
 		{"inline-table", "h = {x = 0000-01-01T00:00:00Z}\n", 1, 10},
+		// A later array value, after a comma or a comment, is a value too
+		// (review round 1, base#1851): g(1) ' '(2) =(3) ' '(4) [(5) 1(6)
+		// ,(7) ' '(8) 0(9); on line 2 of the comment row, two spaces then
+		// 0 at column 3; in the second inline-table member, 0 at 17.
+		{"array-after-comma", "g = [1, 0000-01-01]\n", 1, 9},
+		{"array-after-comment", "g = [ # c\n  0000-01-01]\n", 2, 3},
+		{"inline-table-second", "h = {x = 1, y = 0000-01-01}\n", 1, 17},
 	} {
 		var v map[string]any
 		if _, err := toml.Decode(tc.src, &v); err != nil {
@@ -656,6 +663,15 @@ func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
 		{"a = +1e999\n", "a = +inf  \n"},
 		{"a = -1e999\n", "a = -inf  \n"},
 		{"1e999 = 1e999\n", "1e999 = inf  \n"},
+		// Every value of an array is a value position, not only the
+		// first: after a comma, after a comment and a line ending, and
+		// inside a nested array (review round 1, base#1851).
+		{"a = [1, 1e999]\n", "a = [1, inf  ]\n"},
+		{"a = [1,\n  -1e999]\n", "a = [1,\n  -inf  ]\n"},
+		{"a = [ # c\n  1e999,\n]\n", "a = [ # c\n  inf  ,\n]\n"},
+		{"a = [[1], [2, 1e999]]\n", "a = [[1], [2, inf  ]]\n"},
+		{"a = [{b = 1}, 1e999]\n", "a = [{b = 1}, inf  ]\n"},
+		{"a = {b = 1, c = 1e999}\n", "a = {b = 1, c = inf  }\n"},
 	} {
 		if got := string(Normalize([]byte(tc.src))); got != tc.want {
 			t.Errorf("Normalize(%q) = %q, want %q", tc.src, got, tc.want)
