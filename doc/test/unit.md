@@ -3255,7 +3255,7 @@ thin wrappers over the shared `_sync_managed_entries` mechanism.
 | `_sync_dockerignore: marker added only once across re-syncs (#604)` | Single-marker invariant |
 | `_sync_dockerignore: file without trailing newline gets one before append (#604)` | Trailing-newline guard |
 
-### test/bats/unit/drift_spec.bats (4)
+### test/bats/unit/drift_spec.bats (6)
 
 Mirrors `lib/drift.sh`. `_check_setup_drift` no-op / silent / non-zero paths
 when the conf hash or GPU detection changes against a cached `.env`.
@@ -3264,6 +3264,8 @@ when the conf hash or GPU detection changes against a cached `.env`.
 |------|-------------|
 | `_check_setup_drift no-op when .env missing` | - |
 | `_check_setup_drift silent when nothing changed` | - |
+| `_check_setup_drift warns and reports drift when grep has no -P (base#1644)` | - |
+| `_check_setup_drift stays silent with a grep that supports -P (base#1644)` | - |
 | `_check_setup_drift returns non-zero when conf hash changes` | - |
 | `_check_setup_drift returns non-zero when GPU detection changes` | - |
 
@@ -4527,6 +4529,20 @@ purpose: it runs the REAL kcov through the driver's shard entry over a
 fixture tree, so it catches the defect however a future test builds its
 value, rather than scanning spec text for one way of building it. It
 replaces kcov_trace_volume_spec.bats.
+
+Record (base#1424): the removed kcov_trace_volume_spec.bats and the commits
+that added it (1a642270, df58906e, base#1408) say CI run 40470315196
+(coverage 7/12) "stopped about 64 KiB into" a 1 MiB line. That figure is not
+supported by the hosted job. In the log of job 122075689824 the longest line
+is 917,544 characters, and the last two are 610,344 and 688,157, none near
+65,536; whether the last one was cut short by the cancellation the log
+cannot say. The figure does match the local reproduction written up in the
+same commit (a stdout reader that stops on lines over 64 KiB, so every
+process blocks in pipe_write), and 65,536 is the pipe size the old scanner
+used as its threshold. No earlier source for "64 KiB" is in the repo,
+base#1400, base#1408, base#1414 or base#1426. So it is a local figure, and
+the hosted hang is established only by its timeout and the log gaps
+(base#1414).
 
 | Test | Description |
 |------|-------------|
