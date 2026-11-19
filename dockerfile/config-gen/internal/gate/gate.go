@@ -19,6 +19,10 @@ const (
 	// ReasonInlineNewline is a line ending whose innermost open container
 	// is an inline table (TOML 1.1 only).
 	ReasonInlineNewline
+	// ReasonInlineTrailingComma is a comma followed, after optional
+	// spaces or tabs, by the `}` that closes an inline table (TOML 1.1
+	// only).
+	ReasonInlineTrailingComma
 )
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
@@ -85,7 +89,9 @@ func Check(label string, src []byte) error {
 
 // structural reads src[from:to], bytes outside any token, keeping the
 // stack of open `[` and `{` containers, and returns the refusal for the
-// first line ending there whose innermost open container is `{`.
+// first line ending there whose innermost open container is `{`, or for
+// the first comma there followed, after optional spaces or tabs, by the
+// `}` that closes an inline table.
 func structural(label string, src []byte, from, to int, open *[]byte) *Refusal {
 	for i := from; i < to; i++ {
 		switch c := src[i]; c {
@@ -97,6 +103,14 @@ func structural(label string, src []byte, from, to int, open *[]byte) *Refusal {
 		case '\n', '\r':
 			if n := len(*open); n > 0 && (*open)[n-1] == '{' {
 				return newlineRefusal(label, src, i)
+			}
+		case ',':
+			j := i + 1
+			for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
+				j++
+			}
+			if n := len(*open); n > 0 && (*open)[n-1] == '{' && j < len(src) && src[j] == '}' {
+				return commaRefusal(label, src, i)
 			}
 		}
 	}
@@ -113,6 +127,12 @@ func escapeRefusal(label string, src []byte, off int) *Refusal {
 // inside an inline table.
 func newlineRefusal(label string, src []byte, off int) *Refusal {
 	return refusal(label, src, off, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
+}
+
+// commaRefusal is the refusal for the trailing comma at offset off of
+// src inside an inline table.
+func commaRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonInlineTrailingComma, "trailing comma in an inline table is not TOML 1.0")
 }
 
 // position returns the 1-based line and byte column of offset off in src.
