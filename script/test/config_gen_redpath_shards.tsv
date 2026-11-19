@@ -9,6 +9,7 @@ fmt-parse	3
 corpus-join	4
 corpus-helper	1
 corpus-var	2
+fuzz-panic	4
 mut-unstaged	3
 mut-staged	4
 mut-timeout	1
