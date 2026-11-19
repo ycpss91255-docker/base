@@ -130,3 +130,22 @@ _run_calls() {
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
+
+# why: The differential test compares a verdict for every file it was
+# handed. An answer with fewer rows than the files in the tar -- here
+# three files planted and the container answers for two -- leaves a file
+# with no tomllib verdict, and a short TSV must not reach the build as if
+# it were complete. The step must refuse under the five-point refusal
+# test: status 1, nothing on stdout, config_gen_toml_oracle_failed
+# reason=count, and no toml-oracle/ directory left behind.
+@test "10-toml-oracle.sh: an answer missing a row is config_gen_toml_oracle_failed reason=count, no toml-oracle/ left (base#1851)" {
+  _plant forms/a.toml forms/b.toml toml-test/invalid/c.toml
+  printf '%s\t%s\n' \
+    internal/gate/testdata/forms/a.toml accept \
+    internal/gate/testdata/toml-test/invalid/c.toml refuse \
+    > "${S}/answers"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=count
+  [[ ! -e "${S}/ctx/toml-oracle" ]] \
+    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
+}
