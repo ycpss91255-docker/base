@@ -793,7 +793,7 @@ EOF
   run grep -E '^COPY --from=just-runner .*/just ' \
     /source/dockerfile/Dockerfile.test-tools
   assert_success
-  run grep -nE 'apk add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
+  run grep -nE 'apk(-retry)? add .*\bjust\b' /source/dockerfile/Dockerfile.test-tools
   assert_failure
   [ "${status}" -eq 1 ] \
     || fail "grep errored (${status}), it did not merely fail to match"
@@ -815,7 +815,7 @@ EOF
   # bash), for the same reason the make guard below is: an earlier
   # builder stage is discarded and installing it there would not put it
   # in the image the suite runs in.
-  run grep -E 'apk add .*\bbash\b.*\bdocker-cli-compose\b' \
+  run grep -E 'apk(-retry)? add .*\bbash\b.*\bdocker-cli-compose\b' \
     /source/dockerfile/Dockerfile.test-tools
   assert_success
 }
@@ -879,7 +879,7 @@ EOF
   # stage is discarded — only its /usr/local/bin/kcov is COPY'd out — so
   # scope this guard to the final-stage apk add line (the one that also
   # installs bash + parallel), not the whole file.
-  run grep -E 'apk add .*\bbash\b.*\bmake\b|apk add .*\bmake\b.*\bbash\b' \
+  run grep -E 'apk(-retry)? add .*\bbash\b.*\bmake\b|apk(-retry)? add .*\bmake\b.*\bbash\b' \
     /source/dockerfile/Dockerfile.test-tools
   assert_failure
 }
@@ -3262,9 +3262,10 @@ FIXTURE
   local _wf="/source/.github/workflows/build-worker.yaml"
   assert_spec_subject "${_wf}" \
       "the reusable build worker this spec pins"
-  # Two forwards expected: devel-test and runtime-test build steps.
+  # Three forwards expected: the devel, devel-test and runtime-test build
+  # steps (the devel step joined in base#1670).
   run grep -cE '^            TEST_TOOLS_IMAGE=\$\{\{ steps\.testtools\.outputs\.image \}\}$' "${_wf}"
-  assert_output "2"
+  assert_output "3"
 }
 
 # ════════════════════════════════════════════════════════════════════

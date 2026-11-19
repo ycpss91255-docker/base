@@ -82,6 +82,10 @@ ARG ALPINE_VERSION=3.23
 # KCOV_VERSION bump that invalidates either one fails the build.
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
+# The commit KCOV_VERSION must resolve to (the peeled commit of the annotated
+# tag, not the tag object). kcov-builder fails when the clone differs, so a
+# retagged upstream cannot change the image silently (base#1674).
+ARG KCOV_COMMIT=a39874f938ce13f7a65f253120d1ec946b349ffe
 # THE declaration of the `just` runner version, for this image and for
 # every other path that installs it: script/ci/install-just.sh in each CI
 # job that installs just (fed JUST_VERSION by that job's just-pin step),
@@ -93,6 +97,11 @@ ARG KCOV_VERSION=v43
 # leave the tag unchanged and silently reuse the previous image.
 # tool-pin: just github-release casey/just
 ARG JUST_VERSION=1.58.0
+# sha256 of the just release asset per arch (musl). Source: upstream's published
+# SHA256SUMS, https://github.com/casey/just/releases/download/1.58.0/SHA256SUMS
+# (base#1673). A version bump must update both, otherwise the build fails closed.
+ARG JUST_SHA256_AMD64=4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d
+ARG JUST_SHA256_ARM64=748237128c4c40cbdabc65e841d05ceba13cc23a91eaba395495894c1d9764df
 
 # ── The alpine every package-installing stage below derives from ────────
 #
@@ -132,6 +141,12 @@ RUN if [ -z "${APK_MIRROR}" ]; then \
     elif [ "${APK_MIRROR}" != "dl-cdn.alpinelinux.org" ]; then \
       sed -i "s@dl-cdn\.alpinelinux\.org@${APK_MIRROR}@g" /etc/apk/repositories; \
     fi
+# Every package stage derives from this one, so the retry wrapper rides
+# along: a transient index failure (403 after a long stall, base#1422) is
+# retried with backoff and a lasting one fails with a clear message.
+# Stages call `apk-retry add ...`, never a bare `apk add`;
+# test/bats/unit/apk_retry_spec.bats holds the line.
+COPY dockerfile/apk-retry.sh /usr/local/bin/apk-retry
 
 FROM bats/bats:${BATS_VERSION} AS bats-src
 
@@ -143,13 +158,24 @@ FROM alpine-apk AS bats-extensions
 # what lets the watch propose one mechanically.
 # tool-pin: bats-support github-release bats-core/bats-support
 ARG BATS_SUPPORT_VERSION=v0.3.0
+# base#1674: a tag is a mutable ref; each clone below must land on the commit
+# pinned next to its tag (BATS_SUPPORT_COMMIT, BATS_ASSERT_COMMIT) or the
+# build fails.
+ARG BATS_SUPPORT_COMMIT=24a72e14349690bcbf7c151b9d2d1cdd32d36eb1
 # tool-pin: bats-assert github-release bats-core/bats-assert
 ARG BATS_ASSERT_VERSION=v2.1.0
-RUN apk add --no-cache git && \
+ARG BATS_ASSERT_COMMIT=78fa631d1370562d2cd4a1390989e706158e7bf0
+RUN apk-retry add --no-cache git && \
     git clone --depth 1 -b "${BATS_SUPPORT_VERSION}" \
         https://github.com/bats-core/bats-support /bats/bats-support && \
+    { [ "$(git -C /bats/bats-support rev-parse HEAD)" = "${BATS_SUPPORT_COMMIT}" ] || { \
+        echo "bats-support: commit mismatch: tag ${BATS_SUPPORT_VERSION} is $(git -C /bats/bats-support rev-parse HEAD), pinned ${BATS_SUPPORT_COMMIT}" >&2; \
+        exit 1; }; } && \
     git clone --depth 1 -b "${BATS_ASSERT_VERSION}" \
-        https://github.com/bats-core/bats-assert  /bats/bats-assert
+        https://github.com/bats-core/bats-assert  /bats/bats-assert && \
+    { [ "$(git -C /bats/bats-assert rev-parse HEAD)" = "${BATS_ASSERT_COMMIT}" ] || { \
+        echo "bats-assert: commit mismatch: tag ${BATS_ASSERT_VERSION} is $(git -C /bats/bats-assert rev-parse HEAD), pinned ${BATS_ASSERT_COMMIT}" >&2; \
+        exit 1; }; }
 
 FROM alpine-apk AS lint-tools
 # arch-literal-lint: allow-begin -- the TARGETARCH-to-upstream-asset mapping is
@@ -174,12 +200,18 @@ ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65
 ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
 # tool-pin: hadolint github-release hadolint/hadolint
 ARG HADOLINT_VERSION=v2.15.1
+# sha256 of the v2.15.1 raw binary per arch: the asset `digest` field from
+# `gh release view v2.15.1 -R hadolint/hadolint` (upstream publishes no
+# .sha256 file; curl returned 404), base#1672. A version bump must update
+# both, otherwise the build fails closed.
+ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
 # hadolint ignore=DL4006
-RUN apk add --no-cache curl xz && \
+RUN apk-retry add --no-cache curl xz && \
     case "${TARGETARCH}" in \
-      amd64)  sc_arch="x86_64";  hd_arch="x86_64"; sc_sha="${SHELLCHECK_SHA256_AMD64}" ;; \
-      arm64)  sc_arch="aarch64"; hd_arch="arm64";  sc_sha="${SHELLCHECK_SHA256_ARM64}" ;; \
+      amd64)  sc_arch="x86_64";  hd_arch="x86_64"; sc_sha="${SHELLCHECK_SHA256_AMD64}"; hd_sha="${HADOLINT_SHA256_AMD64}" ;; \
+      arm64)  sc_arch="aarch64"; hd_arch="arm64";  sc_sha="${SHELLCHECK_SHA256_ARM64}"; hd_sha="${HADOLINT_SHA256_ARM64}" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/sc.tar.xz \
@@ -189,6 +221,7 @@ RUN apk add --no-cache curl xz && \
     mv "/tmp/shellcheck-${SHELLCHECK_VERSION}/shellcheck" /usr/local/bin/shellcheck && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /usr/local/bin/hadolint \
         "https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}/hadolint-linux-${hd_arch}" && \
+    verify-extract --verify-only /usr/local/bin/hadolint "${hd_sha}" && \
     chmod +x /usr/local/bin/hadolint
 # arch-literal-lint: allow-end
 
@@ -208,6 +241,9 @@ RUN apk add --no-cache curl xz && \
 # right one for alpine and needs no libc shim.
 FROM alpine:${ALPINE_VERSION} AS just-runner
 ARG JUST_VERSION
+ARG JUST_SHA256_AMD64
+ARG JUST_SHA256_ARM64
+COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract
 # arch-literal-lint: allow-begin -- the same TARGETARCH-to-upstream-asset
 # mapping the lint-tools stage above documents: TARGETARCH speaks
 # amd64 / arm64, the just project publishes x86_64-unknown-linux-musl /
@@ -225,8 +261,8 @@ ARG TARGETARCH
 # after it are what actually prove the download, so a loop that exhausted
 # its attempts cannot pass as success.
 RUN case "${TARGETARCH}" in \
-      amd64)  j_arch="x86_64"  ;; \
-      arm64)  j_arch="aarch64" ;; \
+      amd64)  j_arch="x86_64";  j_sha="${JUST_SHA256_AMD64}" ;; \
+      arm64)  j_arch="aarch64"; j_sha="${JUST_SHA256_ARM64}" ;; \
       *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     url="https://github.com/casey/just/releases/download/${JUST_VERSION}/just-${JUST_VERSION}-${j_arch}-unknown-linux-musl.tar.gz" && \
@@ -235,8 +271,10 @@ RUN case "${TARGETARCH}" in \
       echo "just download attempt ${attempt} failed; retrying" >&2; \
       sleep 3; \
     done && \
-    tar -xzf /tmp/just.tar.gz -C /usr/local/bin just && \
-    rm -f /tmp/just.tar.gz && \
+    mkdir /tmp/just-x && \
+    verify-extract /tmp/just.tar.gz "${j_sha}" /tmp/just-x && \
+    mv /tmp/just-x/just /usr/local/bin/just && \
+    rm -rf /tmp/just.tar.gz /tmp/just-x && \
     chmod +x /usr/local/bin/just && \
     /usr/local/bin/just --version
 # arch-literal-lint: allow-end
@@ -254,24 +292,22 @@ RUN case "${TARGETARCH}" in \
 # and per-file covered counts matched the debian kcov baseline within <0.1%
 # (codecov threshold is 1%) and were bit-stable across repeated runs.
 #
-# The apk line retries: the Alpine `main` index fetch has failed
-# intermittently on this stage (base#1414), and a toolchain this size is
-# the longest fetch in the file. The loop stops at the first success and
-# fails the build after the last attempt.
+# The apk line retries through apk-retry: the Alpine `main` index fetch has
+# failed intermittently on this stage (base#1414), and a toolchain this size
+# is the longest fetch in the file.
 FROM alpine-apk AS kcov-builder
 ARG KCOV_VERSION
+ARG KCOV_COMMIT
 COPY dockerfile/kcov-76bf685.patch /tmp/kcov-76bf685.patch
 COPY dockerfile/kcov-bash53-ansi-c.patch /tmp/kcov-bash53-ansi-c.patch
-RUN for _try in 1 2 3 4; do \
-      apk add --no-cache \
+RUN apk-retry add --no-cache \
         cmake make g++ binutils-dev curl-dev elfutils-dev libdwarf-dev \
-        zlib-dev python3 git && break; \
-      [ "${_try}" -lt 4 ] || exit 1; \
-      echo "apk add failed (attempt ${_try} of 4); retrying in 10 s" >&2; \
-      sleep 10; \
-    done && \
+        zlib-dev python3 git && \
     git clone --depth 1 -b "${KCOV_VERSION}" \
         https://github.com/SimonKagstrom/kcov /tmp/kcov && \
+    { [ "$(git -C /tmp/kcov rev-parse HEAD)" = "${KCOV_COMMIT}" ] || { \
+        echo "kcov: commit mismatch: tag ${KCOV_VERSION} is $(git -C /tmp/kcov rev-parse HEAD), pinned ${KCOV_COMMIT}" >&2; \
+        exit 1; }; } && \
     git -C /tmp/kcov apply /tmp/kcov-76bf685.patch && \
     git -C /tmp/kcov apply /tmp/kcov-bash53-ansi-c.patch && \
     cmake -S /tmp/kcov -B /tmp/kcov/build && \
@@ -376,7 +412,7 @@ FROM alpine-apk
 # package that needed a version of its own -- just, the runner the whole
 # downstream contract is written in -- moved to a pinned upstream release
 # in the just-runner stage above.
-RUN apk add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc jq \
+RUN apk-retry add --no-cache bash parallel git git-subtree ca-certificates grep coreutils yq-go docker-cli docker-cli-buildx docker-cli-compose xz mawk gawk python3 util-linux-misc jq \
         libstdc++ libcurl libdw libelf zlib libgcc
 COPY --from=bats-src /opt/bats /opt/bats
 COPY --from=bats-src /usr/lib/bats /usr/lib/bats
