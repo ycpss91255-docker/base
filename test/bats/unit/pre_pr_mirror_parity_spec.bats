@@ -1072,6 +1072,28 @@ STUB
     || fail "the run never planned the commit-attribution leg"
 }
 
+# why: Run on its own, with no PRE_PR_MIRROR_BASE, the attribution leg
+# walks origin/main..HEAD, the commits a PR from HEAD would carry. Dropping
+# that default left every other spec green, since each one hands the leg a
+# base. Here origin/main sits below an offending commit, so only a leg that
+# falls back to origin/main reaches the offender and names its sha.
+@test "pre-PR mirror: --commit-attribution with no base walks origin/main..HEAD (base#1989)" {
+  _require_mirror
+  local _root _bad _r="${SCRATCH}/repo"
+  _root="$(_make_mirror_repo)"
+  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
+    -m "$(_attributed_message)"
+  _bad="$(git -C "${_r}" rev-parse HEAD)"
+  git -C "${_r}" update-ref refs/remotes/origin/main "${_root}"
+  run env -u PRE_PR_MIRROR_BASE "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "::error::commit ${_bad}"
+}
+
 # ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
 #
 # The mirror attests the roster through `just test`, so the no-flag
