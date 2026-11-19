@@ -39,6 +39,12 @@ while IFS= read -r sha; do
     printf '::error::commit %s: noreply address in message\n' "${sha}"
     hits=$((hits + 1))
   fi
+  # The address as the author identity is attribution even when the message
+  # is clean, base#1989.
+  if grep -qixF "${addr}" <<<"$(git log -1 --format='%ae' "${sha}")"; then
+    printf '::error::commit %s: noreply address as author email\n' "${sha}"
+    hits=$((hits + 1))
+  fi
 done < <(git rev-list "${BASE_SHA}..${HEAD_SHA}")
 
 if [[ "${hits}" -gt 0 ]]; then
