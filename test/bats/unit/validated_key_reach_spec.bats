@@ -401,6 +401,44 @@ _reach_part_from_title() {
   return 1
 }
 
+# The reach check for the part this @test's title names (base#2003): each
+# non-exempt field of that part must change the bundle compose.
+_reach_check_part() {
+  local _k
+  _k="$(_reach_part_from_title "${BATS_TEST_DESCRIPTION}")" || { echo "${_k}"; false; }
+
+  local _base_dir _baseline="${TEMP_DIR}/baseline.yaml"
+  _base_dir="$(_conf_dir "${_REACH_BASE}")"
+  local -A _ctx=() _base_binds=()
+  _resolve_deploy_context "${_base_dir}" _ctx
+  _generate_resolved_compose "${_base_dir}" runtime img name "${_baseline}" _base_binds _ctx
+
+  local -a _fields=()
+  mapfile -t _fields < <(
+    for _f in "${!_ctx[@]}"; do
+      [[ -v "_REACH_EXEMPT[${_f}]" ]] || printf '%s\n' "${_f}"
+    done | LC_ALL=C sort | _reach_part_of "${_k}" 4
+  )
+
+  local _f _inert="" _probe _dir _out
+  for _f in "${_fields[@]}"; do
+    _probe="${_REACH_PROBE[${_f}]:-}"
+    [[ -n "${_probe}" ]] || continue   # the probe-completeness test owns this
+    _dir="$(_conf_dir "${_probe}")"
+    # A probe the bridge refuses would read as "the key changed nothing".
+    run toml_bridge_parse "${_dir}/setup.toml"
+    assert_success
+    _out="${TEMP_DIR}/probe-${_f}.yaml"
+    _reach_bundle "${_dir}" "${_out}"
+    cmp -s "${_baseline}" "${_out}" && _inert+=" ${_f}"
+  done
+  [ -z "${_inert}" ] || {
+    echo "deploy-context fields that cannot change the bundle compose:${_inert}"
+    echo "each is a value the schema accepts and the emitter drops; emit it, or add a _REACH_EXEMPT row saying where it does go"
+    false
+  }
+}
+
 # ════════════════════════════════════════════════════════════════════
 # The derived gate
 # ════════════════════════════════════════════════════════════════════
@@ -440,31 +478,30 @@ _reach_part_from_title() {
 # dropped by the emitter fails here; the alternative -- naming today's
 # fields -- is the assertion that would have passed all through
 # base#1094.
-@test "every deploy-context field can change the generated bundle compose, or is a declared exemption (base#1094)" {
-  local _baseline="${TEMP_DIR}/baseline.yaml"
-  _reach_bundle "$(_conf_dir "${_REACH_BASE}")" "${_baseline}"
+#
+# Split into 4 parts (base#2003) so no one @test runs past the per-test
+# timeout under coverage. Each part checks the fields `_reach_part_of`
+# assigns it; a field with no probe is the probe-completeness test's job.
+@test "every deploy-context field can change the generated bundle compose, or is a declared exemption, part 1 of 4 (base#1094)" {
+  _reach_check_part
+}
 
-  local -A _ctx=()
-  _resolve_deploy_context "$(_conf_dir "${_REACH_BASE}")" _ctx
+# why: base#1094 -- part 2 of the reach gate split by base#2003. Part 1
+# carries the rationale.
+@test "every deploy-context field can change the generated bundle compose, or is a declared exemption, part 2 of 4 (base#1094)" {
+  _reach_check_part
+}
 
-  local _f _inert="" _probe _dir _out
-  for _f in "${!_ctx[@]}"; do
-    [[ -v "_REACH_EXEMPT[${_f}]" ]] && continue
-    _probe="${_REACH_PROBE[${_f}]:-}"
-    [[ -n "${_probe}" ]] || continue   # the probe-completeness test owns this
-    _dir="$(_conf_dir "${_probe}")"
-    # A probe the bridge refuses would read as "the key changed nothing".
-    run toml_bridge_parse "${_dir}/setup.toml"
-    assert_success
-    _out="${TEMP_DIR}/probe-${_f}.yaml"
-    _reach_bundle "${_dir}" "${_out}"
-    cmp -s "${_baseline}" "${_out}" && _inert+=" ${_f}"
-  done
-  [ -z "${_inert}" ] || {
-    echo "deploy-context fields that cannot change the bundle compose:${_inert}"
-    echo "each is a value the schema accepts and the emitter drops; emit it, or add a _REACH_EXEMPT row saying where it does go"
-    false
-  }
+# why: base#1094 -- part 3 of the reach gate split by base#2003. Part 1
+# carries the rationale.
+@test "every deploy-context field can change the generated bundle compose, or is a declared exemption, part 3 of 4 (base#1094)" {
+  _reach_check_part
+}
+
+# why: base#1094 -- part 4 of the reach gate split by base#2003. Part 1
+# carries the rationale.
+@test "every deploy-context field can change the generated bundle compose, or is a declared exemption, part 4 of 4 (base#1094)" {
+  _reach_check_part
 }
 
 # why: base#2003 -- the reach gate runs in parts so no one @test runs
