@@ -1005,6 +1005,31 @@ STUB
   assert_output 1
 }
 
+# ── the commit-attribution leg (base#1989) ───────────────────────────────────
+
+# why: The mirror attests the commit-attribution job through
+# `--commit-attribution`. A body that returned 0 without running the check
+# left every other spec green, so the leg could pass a branch CI fails. A
+# commit after the base carrying the co-author trailer must make the leg
+# exit non-zero and name that commit's sha. The marker is built from parts
+# so the repo's own attribution guards do not fire on this file.
+@test "pre-PR mirror: --commit-attribution fails a commit after the base that carries the co-author trailer (base#1989)" {
+  _require_mirror
+  local _base _bad _r="${SCRATCH}/repo"
+  _base="$(_make_mirror_repo)"
+  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
+    -m "$(printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
+      Co Authored By Cla ude noreply anthropic com)"
+  _bad="$(git -C "${_r}" rev-parse HEAD)"
+  run env PRE_PR_MIRROR_BASE="${_base}" "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "::error::commit ${_bad}"
+}
+
 # ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
 #
 # The mirror attests the roster through `just test`, so the no-flag
