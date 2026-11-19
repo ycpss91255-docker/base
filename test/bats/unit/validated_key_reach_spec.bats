@@ -375,6 +375,13 @@ _reach_bundle() {
   _generate_resolved_compose "${_conf}" runtime img name "${_out}" _binds _ctx
 }
 
+# Print the stdin lines whose 0-based index i has i % <K> == <k>
+# (base#2003): one part of the reach gate's field list.
+_reach_part_of() {
+  awk -v k="${1:?missing part}" -v n="${2:?missing part count}" \
+    '(NR - 1) % n == k'
+}
+
 # ════════════════════════════════════════════════════════════════════
 # The derived gate
 # ════════════════════════════════════════════════════════════════════
