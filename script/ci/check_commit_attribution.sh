@@ -5,10 +5,10 @@
 # Usage: EVENT_NAME=<event> BASE_SHA=<oid> HEAD_SHA=<oid> check_commit_attribution.sh
 #
 # Walks `git rev-list BASE_SHA..HEAD_SHA` and matches each commit's message
-# against the marker list of the local attribution hook and the model
-# vendor's noreply address, and its author and committer emails against that
-# address. The list is copied here because the hook lives outside the
-# repository and CI cannot read it.
+# against the marker list of the local attribution hook, the addresses in
+# its trailers against the model vendor's noreply address, and its author
+# and committer emails against that address. The list is copied here
+# because the hook lives outside the repository and CI cannot read it.
 # Prints `::error::commit <sha>: <marker>` for each hit and exits 1 when any
 # commit hits.
 set -euo pipefail
@@ -41,9 +41,15 @@ done
 model="Cla""ude"
 footer="Generated with (\\[)?${model} Code"
 coauthor="Co-Authored-By:[[:space:]]*${model}"
-# The model vendor's noreply address, matched as a fixed string anywhere in
-# the message so a trailer under any key carrying it fails, base#1989.
+# The model vendor's noreply address. A trailer under any key that uses it
+# fails; prose that names it, or an address that only contains it, does
+# not, base#1989.
 addr="noreply@""anthropic.com"
+# One email-shaped token: the run around an @ up to white space, an angle
+# bracket, a comma, a semicolon, a colon, a quote or a parenthesis, so the
+# address is read whole wherever a trailer value puts it, base#1989.
+sep='<>[:space:],;:"()'
+email_token="[^${sep}]+@[^${sep}]+"
 
 hits=0
 count=0
@@ -65,7 +71,12 @@ while IFS= read -r sha; do
   if grep -qiE "${coauthor}" <<<"${msg}"; then
     _hit "${sha}" "co-author trailer naming the model in message"
   fi
-  if grep -qiF "${addr}" <<<"${msg}"; then
+  # Each address in the trailer lines git parses out of the message, so a
+  # prose line inside the trailer block is left out, compared whole and
+  # without regard to case, base#1989.
+  trailers="$(git log -1 --format='%(trailers:only)' "${sha}")"
+  emails="$(grep -oE "${email_token}" <<<"${trailers}" || true)"
+  if grep -qixF "${addr}" <<<"${emails}"; then
     _hit "${sha}" "noreply address in message"
   fi
   # The address as the author identity is attribution even when the message
