@@ -79,3 +79,47 @@ func TestCheckAcceptsEscapeBytesOutsideBasicString(t *testing.T) {
 		})
 	}
 }
+
+// The escape rule also fires inside a multi-line basic string, which may
+// hold one or two lone quotes before its closing `"""`; a gate that
+// toggles "in a string" at every quote reads the escape as outside one
+// (base#1850). Columns are counted by hand:
+//
+//	`a = """a" \e"""`    a(1) ' '(2) =(3) ' '(4) "(5) "(6) "(7) a(8) "(9) ' '(10) \(11)
+//	`a = """x"" \x41"""` a(1) ' '(2) =(3) ' '(4) "(5) "(6) "(7) x(8) "(9) "(10) ' '(11) \(12)
+//
+// The nil rows hold a `{` or a newline inside the multi-line basic string,
+// which is TOML 1.0 and must not open a container or end a line for the
+// gate. BurntSushi decodes every row.
+func TestCheckEscapeInMultiLineBasicString(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		col       int // 0: Check must return nil
+	}{
+		{"one-quote-e", "a = \"\"\"a\" \\e\"\"\"\n", 11},
+		{"two-quotes-x", "a = \"\"\"x\"\" \\x41\"\"\"\n", 12},
+		{"newline-in-inline", "a = {b = \"\"\"a\"\n\"\"\"}\n", 0},
+		{"brace-in-string", "a = \"\"\"a\" {\"\"\"\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var v map[string]any
+			if _, err := toml.Decode(tc.src, &v); err != nil {
+				t.Fatalf("toml.Decode(%q) = %v, want nil", tc.src, err)
+			}
+			err := Check("t.toml", []byte(tc.src))
+			if tc.col == 0 {
+				if err != nil {
+					t.Fatalf("Check(%q) = %v, want nil", tc.src, err)
+				}
+				return
+			}
+			var r *Refusal
+			if !errors.As(err, &r) {
+				t.Fatalf("Check(%q) = %v, want *Refusal", tc.src, err)
+			}
+			if r.File != "t.toml" || r.Line != 1 || r.Col != tc.col || r.Reason != ReasonEscape {
+				t.Fatalf("Refusal = {%q %d %d %v}, want {\"t.toml\" 1 %d ReasonEscape}", r.File, r.Line, r.Col, r.Reason, tc.col)
+			}
+		})
+	}
+}
