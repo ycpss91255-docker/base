@@ -204,7 +204,11 @@ _df_instructions() {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
   awk -F'\t' '$1 == "test" && $2 ~ /^RUN /' "${S}/df" > "${S}/runs"
-  assert_equal "$(grep -c 'go test ' "${S}/runs")" 1
+  # One go test that runs tests: a call that only lists targets (-list) or
+  # runs no test (-run '^$', the fuzz gate, base#1850) is not a second run.
+  grep -oE 'go test [^;|&]*' "${S}/runs" \
+    | grep -vE -- "-list |-run '\^\\$'" > "${S}/tests" || true
+  assert_equal "$(wc -l < "${S}/tests")" 1
   local _race _cov _prof
   _race="$(grep -n 'gate=race ok' "${S}/runs" | cut -d: -f1)"
   _cov="$(grep -n 'gate=coverage ok' "${S}/runs" | cut -d: -f1)"

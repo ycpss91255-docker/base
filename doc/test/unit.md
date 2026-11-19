@@ -2183,11 +2183,11 @@ This spec pins the pieces that make one command, `just test go`, run the
 same gates in every environment:
 
 dockerfile/Dockerfile.config-gen build, test and final (scratch) stages; the
-test stage runs fmt, vet, lint, race and coverage, one RUN each, in that
-order. script/test/config_gen_gates.sh the runner: steps seam, named build
-contexts, the docker build, the gate id re-emitted, and the binary contract.
-script/test/config_gen_redpath.sh one planted defect per gate plus an
-unmodified copy run twice as rerun, each through the runner on a scratch
+test stage runs fmt, vet, lint, race, coverage and fuzz, one RUN each, in
+that order. script/test/config_gen_gates.sh the runner: steps seam, named
+build contexts, the docker build, the gate id re-emitted, and the binary
+contract. script/test/config_gen_redpath.sh one planted defect per gate plus
+an unmodified copy run twice as rerun, each through the runner on a scratch
 copy. `go` recipe in justfile.test the runner, then the redpath.
 
 docker, just and the runner are stubbed here; the real `just test go` is the
@@ -2195,7 +2195,7 @@ end-to-end proof that the planted defects go red.
 
 | Test | Description |
 |------|-------------|
-| `Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)` | Each gate is its own RUN so a red names its gate: one RUN running all five would leave the first id as the only record and stop the later gates from reading as "never reached" rather than "passed". The order is the one the redpath's earlier_gate_missing check reads. |
+| `Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, fuzz, one RUN each, in that order (base#1462)` | Each gate is its own RUN so a red names its gate: one RUN running all six would leave the first id as the only record and stop the later gates from reading as "never reached" rather than "passed". The order is the one the redpath's earlier_gate_missing check reads; fuzz, the 60 s search (base#1850), runs last of them; the gates after it print no ok line. |
 | `Dockerfile.config-gen: the coverage RUN runs the coverage.sh 01-admit installs in the mutation context (base#1467)` | The coverage gate is a script so the >= 90% rule and its refusals can be tested on the host with a stub go; an inline awk in the RUN could not be. It runs from the mutation context, where 01-admit installs it from the host checkout: a copy inside the module would be a module file no mapping rule of the mutation gate covers, so every change to it, and every run from an empty base, would be refused as unmapped (base#1467). |
 | `Dockerfile.config-gen: the race RUN's one go test writes the atomic profile the coverage RUN hands to coverage.sh --profile (base#1547)` | The race RUN and coverage.sh each ran go test over every package, so the tests ran twice per build (base#1547). Now the race RUN's go test is the only one in the test stage: it runs under -race and writes one atomic profile, and the coverage RUN, which comes after it, hands that same profile to coverage.sh --profile and runs no go test of its own. |
 | `Dockerfile.config-gen: declares build, test and a final stage FROM scratch (base#1462)` | The shipped stage holds only the binary; the runner's binary contract runs that stage, so a final stage built on the toolchain would let the contract pass on a binary nobody ships. |
