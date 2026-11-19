@@ -154,8 +154,8 @@ _run_pr() {
 # why: Email addresses are matched without regard to case, so an author
 # email that spells the noreply address in mixed case is the same address.
 # A check that compared the author email case-sensitively would pass a
-# commit authored as `NoReply@Anthropic.com` with a clean message, so this
-# pins exit 1 and the sha for it (base#1989).
+# commit authored as the address with its local part and domain capitalised
+# and a clean message, so this pins exit 1 and the sha for it (base#1989).
 @test "check_commit_attribution.sh: a mixed-case author email equal to the noreply address fails and names the sha (base#1989)" {
   GIT_AUTHOR_EMAIL="$(printf '%s@%s.%s' "NoReply" "Anthropic" "com")" \
     git -C "${REPO}" commit -q --allow-empty -m "feat: x"
@@ -170,8 +170,8 @@ _run_pr() {
 # why: The committer email is compared on its own, and without regard to
 # case like the author email. A check that compared it case-sensitively
 # would pass a commit with a human author and a clean message committed as
-# `NoReply@Anthropic.com`, so this pins exit 1 and the sha for it
-# (base#1989).
+# the address with its local part and domain capitalised, so this pins
+# exit 1 and the sha for it (base#1989).
 @test "check_commit_attribution.sh: a mixed-case committer email equal to the noreply address fails and names the sha (base#1989)" {
   GIT_COMMITTER_EMAIL="$(printf '%s@%s.%s' "NoReply" "Anthropic" "com")" \
     git -C "${REPO}" commit -q --allow-empty -m "feat: x"
@@ -187,7 +187,7 @@ _run_pr() {
 # that merely contains it. A check that matched the address anywhere in the
 # author email would fail a commit authored under another domain that ends
 # in the address's text, so this pins exit 0 and no author-email error for
-# `noreply@anthropic.com.example.org` with a clean message (base#1989).
+# the address followed by `.example.org` with a clean message (base#1989).
 @test "check_commit_attribution.sh: an author email that only contains the noreply address passes (base#1989)" {
   GIT_AUTHOR_EMAIL="$(_addr).example.org" \
     git -C "${REPO}" commit -q --allow-empty -m "feat: x"
@@ -200,9 +200,9 @@ _run_pr() {
 
 # why: The committer rule is read on its own and is also an email equal to
 # the noreply address. A check that matched the address anywhere in the
-# committer email would fail a commit committed under
-# `noreply@anthropic.com.example.org` with a human author and a clean
-# message, so this pins exit 0 and no committer-email error (base#1989).
+# committer email would fail a commit committed under the address followed
+# by `.example.org` with a human author and a clean message, so this pins
+# exit 0 and no committer-email error (base#1989).
 @test "check_commit_attribution.sh: a committer email that only contains the noreply address passes (base#1989)" {
   GIT_COMMITTER_EMAIL="$(_addr).example.org" \
     git -C "${REPO}" commit -q --allow-empty -m "feat: x"
