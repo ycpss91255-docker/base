@@ -12,9 +12,14 @@ import (
 // Reason names why Check refused its input.
 type Reason int
 
-// ReasonEscape is a `\e` or `\x` escape in a basic string (TOML 1.1
-// only).
-const ReasonEscape Reason = 1
+const (
+	// ReasonEscape is a `\e` or `\x` escape in a basic string (TOML 1.1
+	// only).
+	ReasonEscape Reason = iota + 1
+	// ReasonInlineNewline is a line ending whose innermost open container
+	// is an inline table (TOML 1.1 only).
+	ReasonInlineNewline
+)
 
 // Refusal is the error Check returns. Line and Col are 1-based; Col is
 // the byte column after the last LF.
@@ -49,17 +54,49 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 // so its second byte never starts an escape.
 var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^'\n]*'|"""(?:[^\\]|\\[^ex])*?(?:(\\[ex])|"""""|""""|""")|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
 
-// Check returns nil, or a *Refusal that names label and the offending
-// byte of src (base#1850): the backslash of the first `\e` or `\x`
-// escape in a basic or multi-line basic string. The same bytes in a
-// comment, a literal string or a multi-line literal are TOML 1.0 and are
-// accepted.
+// Check returns nil, or a *Refusal that names label and the first
+// offending byte of src (base#1850): the backslash of a `\e` or `\x`
+// escape in a basic or multi-line basic string, or the first byte (LF,
+// or the CR of a CRLF) of a line ending outside a string or comment
+// whose innermost open `[` / `{` container is an inline table. The same
+// bytes in a comment, a literal string or a multi-line literal are TOML
+// 1.0 and are accepted.
 func Check(label string, src []byte) error {
+	var open []byte
+	prev := 0
 	// Every token is at least one byte, so src holds at most len(src).
-	for _, m := range tokenPattern.FindAllSubmatchIndex(src, len(src)) {
+	// An empty match at len(src) with neither escape group set ends the
+	// list, so that the bytes after the last token are read too.
+	end := len(src)
+	tokens := append(tokenPattern.FindAllSubmatchIndex(src, len(src)), []int{end, end, -1, end, -1, end})
+	for _, m := range tokens {
+		if r := structural(label, src, prev, m[0], &open); r != nil {
+			return r
+		}
 		for _, g := range []int{m[2], m[4]} {
 			if g != -1 {
 				return escapeRefusal(label, src, g)
+			}
+		}
+		prev = m[1]
+	}
+	return nil
+}
+
+// structural reads src[from:to], bytes outside any token, keeping the
+// stack of open `[` and `{` containers, and returns the refusal for the
+// first line ending there whose innermost open container is `{`.
+func structural(label string, src []byte, from, to int, open *[]byte) *Refusal {
+	for i := from; i < to; i++ {
+		switch c := src[i]; c {
+		case '[', '{':
+			*open = append(*open, c)
+		case ']', '}':
+			// A close with nothing open leaves the stack empty.
+			*open = (*open)[:max(len(*open)-1, 0)]
+		case '\n', '\r':
+			if n := len(*open); n > 0 && (*open)[n-1] == '{' {
+				return newlineRefusal(label, src, i)
 			}
 		}
 	}
@@ -70,6 +107,12 @@ func Check(label string, src []byte) error {
 // backslash is at offset off of src.
 func escapeRefusal(label string, src []byte, off int) *Refusal {
 	return refusal(label, src, off, ReasonEscape, "escape sequence "+string(src[off:off+2])+" is not TOML 1.0")
+}
+
+// newlineRefusal is the refusal for the line ending at offset off of src
+// inside an inline table.
+func newlineRefusal(label string, src []byte, off int) *Refusal {
+	return refusal(label, src, off, ReasonInlineNewline, "line ending inside an inline table is not TOML 1.0")
 }
 
 // position returns the 1-based line and byte column of offset off in src.
