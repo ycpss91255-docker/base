@@ -47,7 +47,7 @@ teardown() {
   run bash -c '
     source /source/script/test/test.sh
     set -eo pipefail
-    _run_coverage()    { return 1; }
+    _run_coverage()    { printf "COVERAGE_RAN\n" >> "'"${_log}"'"; return 1; }
     _fix_permissions() { printf "HANDBACK\n" >> "'"${_log}"'"; }
     trap _test_exit_reclaim EXIT
     COVERAGE=1 COVERAGE_PATH= COVERAGE_SHARD= COVERAGE_LOCAL_JOBS= \
@@ -57,6 +57,13 @@ teardown() {
   '
   assert_failure
   assert [ -f "${_log}" ]
+  # The red has to come from the coverage phase, not from a refusal ahead
+  # of it: a bare-run prerequisite refusal also exits non-zero and also
+  # trips the EXIT-trap handback, so without this the case passes having
+  # never run the phase it is about (base#1423).
+  run cat "${_log}"
+  assert_line "COVERAGE_RAN"
+  assert_line "HANDBACK"
 }
 
 # why: the same hole on the other phase that writes into the mounted checkout
