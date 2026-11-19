@@ -107,6 +107,47 @@ func oracleFiles(t *testing.T) map[string]string {
 	return files
 }
 
+// differential, the comparison TestDifferential runs, must refuse rows
+// that are not exactly the files, each once, before it compares a single
+// verdict (review round 1, base#1851). The files here both decode, so a
+// verdict comparison alone passes every row set below: a same-count set
+// that repeats a.toml in b.toml's place must name the omitted b.toml, and
+// a set that repeats a.toml beside b.toml must name the repeat.
+func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{}
+	for _, rel := range []string{"a.toml", "b.toml"} {
+		p := filepath.Join(dir, rel)
+		if err := os.WriteFile(p, []byte("x = 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		files[rel] = p
+	}
+	cases := []struct {
+		name string
+		rows []string
+		want string // "" = no problem; otherwise a substring of the problems
+	}{
+		{"the files once each", []string{"a.toml\taccept", "b.toml\taccept"}, ""},
+		{"a repeated in b's place", []string{"a.toml\taccept", "a.toml\taccept"}, "no oracle verdict row for b.toml"},
+		{"a repeated beside b", []string{"a.toml\taccept", "a.toml\taccept", "b.toml\taccept"}, "oracle verdict row for a.toml appears more than once"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := strings.Join(differential(tc.rows, files), "\n")
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("differential(%q) = %q, want no problem", tc.rows, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("differential(%q) = %q, want it to name %q", tc.rows, got, tc.want)
+			}
+		})
+	}
+}
+
 // The live rows, from the verdicts file `just test go` hands the build
 // through CONFIG_GEN_TOML_ORACLE, must equal oracleFiles' set.
 func TestOracleRows(t *testing.T) {
