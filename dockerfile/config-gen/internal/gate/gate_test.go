@@ -2,6 +2,7 @@ package gate
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -661,3 +662,61 @@ func TestNormalizeRewritesOnlyTOMLFloats(t *testing.T) {
 		}
 	}
 }
+
+// Where the structural reading cannot go on, Check refuses at the byte it
+// stopped on, the first byte in document order its reading cannot go on
+// from, and reads no further: no later rule (the escape on line 2 of
+// the first row) decides the verdict (base#1851). Each row's position is
+// counted by hand: the `\n` where the header's `]` should be (1:3); the
+// `,` where an inline table's first key should be (1:6, t(1) ' '(2) =(3)
+// ' '(4) {(5) ,(6)); the `}` where `=` should be (1:7); the `c` and the
+// second `"` where a `,` should be (1:14, 1:10); and the last byte, the
+// lone `[`, when the document ends inside a header (2:1). The rest are
+// one row for each other place the reading stops: the byte where a key or
+// its `=` should start, the byte after a complete statement, the byte
+// where a value should start, the line ending that leaves a one-line
+// string unclosed, and the last byte when the document ends inside a key,
+// a value or a multi-line string.
+func TestCheckRefusesAtTheStopPoint(t *testing.T) {
+	read := func(p string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", p))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"header-newline", "[a\nb = \"\\e\"\n", 1, 3},
+		{"empty-01", read("toml-test/invalid/inline-table/empty-01.toml"), 1, 6},
+		{"empty-02", read("toml-test/invalid/inline-table/empty-02.toml"), 1, 6},
+		{"inline-no-equals", read("forms/stop-inline-no-equals.toml"), 1, 7},
+		{"inline-no-comma", read("forms/stop-inline-no-comma.toml"), 1, 14},
+		{"array-no-comma", read("forms/stop-array-no-comma.toml"), 1, 10},
+		{"header-eof", read("forms/stop-header-eof.toml"), 2, 1},
+		{"key-missing", "= 1\n", 1, 1},
+		{"key-eof", "a.", 1, 2},
+		{"equals-missing", "a 1\n", 1, 3},
+		{"statement-trailing", "a = 1 b\n", 1, 7},
+		{"value-eof", "a =", 1, 3},
+		{"value-missing", "a = ,\n", 1, 5},
+		{"string-line-end", "a = \"x\nb = 1\n", 1, 7},
+		{"string-eof", "a = \"\"\"x", 1, 8},
+	} {
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		want := fmt.Sprintf("t.toml:%d:%d: %s", tc.line, tc.col, wantSyntaxText)
+		if r.Reason != ReasonSyntax || r.Error() != want {
+			t.Errorf("%s: Check(%q) = %v %q, want ReasonSyntax %q", tc.name, tc.src, r.Reason, r.Error(), want)
+		}
+	}
+}
+
+// wantSyntaxText is the stop-point refusal's text, written as a literal.
+const wantSyntaxText = "invalid TOML 1.0 syntax"
