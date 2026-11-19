@@ -441,6 +441,27 @@ _reach_bundle() {
   }
 }
 
+# why: base#2003 -- the reach gate runs in parts so no one @test runs
+# past the per-test timeout under coverage, and a part is the fields at
+# index i with i % K == k. Over a worked literal, so a constant part, a
+# dropped index, or an index counted from 1 each gives other lines.
+@test "a reach part is every K-th field from its index (base#2003)" {
+  local _in
+  _in="$(printf '%s\n' a b c d e f)"
+  run _reach_part_of 0 4 <<< "${_in}"
+  assert_success
+  assert_output "$(printf '%s\n' a e)"
+  run _reach_part_of 1 4 <<< "${_in}"
+  assert_success
+  assert_output "$(printf '%s\n' b f)"
+  run _reach_part_of 2 4 <<< "${_in}"
+  assert_success
+  assert_output "c"
+  run _reach_part_of 3 4 <<< "${_in}"
+  assert_success
+  assert_output "d"
+}
+
 # why: base#1094 -- an exemption is a claim about where the value goes,
 # and an unexplained one is the hole this gate exists to close. Mirrors
 # schema.sh's SCHEMA_FREEFORM reason rule.
