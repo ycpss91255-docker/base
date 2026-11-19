@@ -133,7 +133,7 @@
 # lists it in ignored.sha256; Dockerfile.config-gen.dockerignore must keep
 # it out of the build context, admission must accept a listed ignored file
 # the context does not hold, and so the ignored-input gate has nothing to
-# refuse: the run passes with the six ok lines. ign-excluded-go is the ign
+# refuse: the run passes with the seven ok lines. ign-excluded-go is the ign
 # case below, the same Git-ignored cmd/config-gen/zz_ign.go planted the
 # same way, with one more line in the copy's
 # Dockerfile.config-gen.dockerignore that drops it from the build context:
@@ -144,7 +144,7 @@
 # module file in the build context, so the producer lists it in
 # ignored.sha256 and admission accepts the context: the ignored-input gate
 # must refuse it after every S1b gate. The run must exit exactly 1 with
-# exactly the rerun case's six ok lines on stdout, no "unregistered log body",
+# exactly the rerun case's seven ok lines on stdout, no "unregistered log body",
 # the runner's JSON config_gen_gate_<gate>_failed as its first gate record,
 # and exactly one runner JSON record of the row's event, naming the
 # row's file (reason after_admit_detail_mismatch).
@@ -174,6 +174,7 @@
 #   gate=lint ok
 #   gate=race ok
 #   gate=coverage ok
+#   gate=fuzz ok
 #
 # on stdout, so a verdict RUN the second call took from the build cache
 # (it prints no line) fails the case instead of passing on cache state.
@@ -181,7 +182,7 @@
 # The retro case (base#1467) plants nothing either: it puts an empty root
 # commit under the copy's one commit and runs the runner with
 # CONFIG_GEN_MUTATION_BASE set to it, so every tracked module file is an
-# `A` line of the manifest. It must exit 0 with exactly the six ok lines,
+# `A` line of the manifest. It must exit 0 with exactly the seven ok lines,
 # a manifest header with that base and dirty=no, no
 # config_gen_mutation_unmapped anywhere, and one mutation line, `<pkg> ok
 # efficacy=<e>` or `<pkg> no-mutants`, for exactly each package of the
@@ -1360,7 +1361,7 @@ _rp_stale() {
 }
 
 # The seven lines each green and rerun call must print, typed from
-# the issue's gate list (base#1465), not derived from _RP_GATES.
+# the issues' gate lists (base#1465, base#1850), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
 gate=fmt ok
 gate=vet ok

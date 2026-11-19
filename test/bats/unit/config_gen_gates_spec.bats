@@ -665,7 +665,7 @@ _digest_of() {
 
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
-# the six ok lines, a refusal nothing at all; base#1465). A step's own
+# the seven ok lines, a refusal nothing at all; base#1465). A step's own
 # report (20-gomod-oracle prints `gomod-oracle: <n> fixture(s) agree ...`,
 # base#1463) is a log line, so it goes to stderr with the build log.
 @test "config_gen_gates.sh: a step's stdout goes to stderr, so stdout holds only the ok lines (base#1465)" {
@@ -1233,8 +1233,8 @@ _ok_lines() {
 # rc 1; a stale case is an empty stdout, the runner's records of
 # config_gen_manifest_stale (the row's file and reason) and
 # config_gen_gate_admission_failed, rc 1; a green case and both rerun
-# calls are the six ok lines and rc 0; an after-admit case
-# (base#1467) is the six ok lines, the runner's records of the row's gate
+# calls are the seven ok lines and rc 0; an after-admit case
+# (base#1467) is the seven ok lines, the runner's records of the row's gate
 # id and of its event naming the row's file, rc 1; a coverage case is the
 # five pre-coverage ok lines, the runner's records of the row's event
 # (naming the row's pkg, and its file when it has one) and
@@ -1330,7 +1330,7 @@ _canned_correct() {
   _ok_lines "" > "${S}/canned/rerun.out"
   : > "${S}/canned/rerun.err"
   printf '0\n' > "${S}/canned/rerun.rc"
-  # retro (base#1467): the six ok lines, one passing mutation line per
+  # retro (base#1467): the seven ok lines, one passing mutation line per
   # package of the module (each directory holding a .go file outside
   # testdata/), rc 0; the stub runner adds the manifest header naming the
   # base it was handed.
@@ -1805,7 +1805,7 @@ _unplanted_cases() {
 
 # why: The unmodified copy's verdict is one value per commit, but a control
 # run on every redpath invocation repeats it once per way the run is split;
-# rerun's first call already holds that copy to rc 0 and exactly the six ok
+# rerun's first call already holds that copy to rc 0 and exactly the seven ok
 # lines, a stronger check than the control's (base#1547). So rerun is the
 # only check on the unmodified copy: an unsharded run calls the runner on
 # an unplanted copy exactly twice, both told rerun, and no call is told
@@ -2270,7 +2270,7 @@ _glibc_getconf() {
 # why: A verdict RUN the build cache served prints no line, so a runner
 # that excluded only `test` (or only `admit`) from the cache passes its
 # first call and reports cache state on the next. The rerun case calls the
-# runner twice on one unchanged copy and holds each call to the six ok
+# runner twice on one unchanged copy and holds each call to the seven ok
 # lines exactly (base#1465).
 @test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
@@ -2351,9 +2351,9 @@ gate=fuzz ok'
 
 # why: A green case proves admission accepts a baseline the producer
 # writes and every gate still runs after it; a call that exits non-zero,
-# or that prints anything but the six ok lines, is a producer output
+# or that prints anything but the seven ok lines, is a producer output
 # admission refused or a gate that did not run (base#1465).
-@test "config_gen_redpath.sh: a green case that exits non-zero or prints other than the six ok lines fails by reason (base#1465)" {
+@test "config_gen_redpath.sh: a green case that exits non-zero or prints other than the seven ok lines fails by reason (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   local _row _reason
   for _row in rc stdout; do
@@ -2479,7 +2479,7 @@ gate=fuzz ok'
 }
 
 # why: An after-admit case passes only when the ignored-input gate refused
-# it after every S1b gate: exit exactly 1, the six ok lines, the gate's
+# it after every S1b gate and fuzz: exit exactly 1, the seven ok lines, the gate's
 # record first, and one record of its event naming the planted file. Each
 # row breaks one part (base#1467).
 @test "config_gen_redpath.sh: an after-admit case missing any part of its contract fails with that part's reason (base#1467)" {
@@ -2508,7 +2508,7 @@ gate=fuzz ok'
 
 # why: The retro case passes only on a clean run from the empty base it
 # planted that judged every package of the module and mapped every module
-# file: a run that exited non-zero, printed other than the six ok lines,
+# file: a run that exited non-zero, printed other than the seven ok lines,
 # was handed a dirty manifest, refused a file as unmapped or judged another
 # package set is each a gate that did not see the whole module (base#1467).
 @test "config_gen_redpath.sh: a retro answer missing any part of its contract fails with that part's reason (base#1467)" {
@@ -3007,7 +3007,7 @@ _test_gate_run() {
 # must hand cg-gates the mutation context's inputs, the bound build
 # context and the corpus root the race RUN wrote, stop with its gate's id
 # when cg-gates refuses, and print neither the id nor an ok line when it
-# passes (the green callers expect exactly the six S1b ok lines).
+# passes (the green callers expect exactly the seven ok lines).
 @test "Dockerfile.config-gen: the ignored, corpus_sensitivity and mutation RUNs run cg-gates on their inputs and stop with the gate's id on its refusal (base#1467)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _g _want
