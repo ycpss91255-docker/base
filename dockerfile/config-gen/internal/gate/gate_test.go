@@ -229,3 +229,48 @@ func TestCheckRefusesNewlineInInlineTable(t *testing.T) {
 		}
 	}
 }
+
+// A comma followed (after optional whitespace) by the `}` that closes an
+// inline table is TOML 1.1 only: the TOML 1.0 ABNF (inline-table-keyvals
+// = keyval [ inline-table-sep inline-table-keyvals ]) has no trailing
+// separator, and tomllib refuses `a = {b = 1, }` at 1:13 (rc=1) while
+// BurntSushi v1.6.0 accepts it (base#1850). The gate must refuse it at
+// the comma, counted by hand, e.g. r1:
+// a(1) ' '(2) =(3) ' '(4) {(5) b(6) ' '(7) =(8) ' '(9) 1(10) ,(11).
+// An array's trailing comma is TOML 1.0 (array-values allows it), and a
+// comma between two inline-table pairs is the separator, so both are nil:
+// refusing every `,` inside `{` fails c2.
+func TestCheckRefusesTrailingCommaInInlineTable(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int
+	}{
+		{"r1", "a = {b = 1, }\n", 1, 11},
+		{"r2", "a = {b = 1,}\n", 1, 11},
+	} {
+		// Control: the decoder accepts the form, so the gate is the only
+		// thing between these bytes and a TOML 1.1 parse.
+		var v map[string]any
+		if _, err := toml.Decode(tc.src, &v); err != nil {
+			t.Fatalf("%s: toml.Decode(%q) = %v, want nil (the decoder accepts a trailing comma)", tc.name, tc.src, err)
+		}
+		err := Check("t.toml", []byte(tc.src))
+		var r *Refusal
+		if !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonInlineTrailingComma {
+			t.Errorf("%s: Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonInlineTrailingComma}",
+				tc.name, r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+		}
+	}
+	for _, tc := range []struct{ name, src string }{
+		{"c1", "a = [1,\n2,]\n"},
+		{"c2", "a = {b = 1, c = 2}\n"},
+	} {
+		if err := Check("t.toml", []byte(tc.src)); err != nil {
+			t.Errorf("%s: Check(%q) = %v, want nil", tc.name, tc.src, err)
+		}
+	}
+}
