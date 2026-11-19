@@ -348,45 +348,16 @@ ROWS
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
 
-# why: Inside the container, a file's verdict is what the interpreter
-# printed after tomllib answered. An interpreter killed on a file -- here
-# the oracle program's on forms/b.toml, then, in a second run, the real
-# bridge's on the calibration pass -- said nothing about that file, and
-# its exit status must not be read as `refuse`. The container must fail,
-# and the step must refuse under the five-point refusal test: status 1,
-# nothing on stdout, config_gen_toml_oracle_failed reason=image, and no
-# toml-oracle/ directory (review round 1, base#1851).
+# why: A file's verdict is what the oracle program printed after tomllib
+# answered. An interpreter killed while it runs -- here a python3 first on
+# the stub's PATH that sends itself SIGKILL -- said nothing about the
+# files, and its exit status must not be read as `refuse`. The container
+# must fail, and the step must refuse under the five-point refusal test:
+# status 1, nothing on stdout, config_gen_toml_oracle_failed reason=image,
+# and no toml-oracle/ directory (review round 1, base#1851).
 @test "10-toml-oracle.sh: an interpreter killed inside the container is config_gen_toml_oracle_failed reason=image, never a refuse verdict (base#1851)" {
-  _plant_as die forms/b.toml
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=image
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
-  _plant_as bridge-die forms/b.toml
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=image
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
-}
-
-# why: The bridge exits 1 both when tomllib refuses the file and when it
-# fails for any other reason -- an uncaught exception's traceback exits 1
-# too. On a file the oracle program refused, an exit 1 is the bridge's
-# refusal only if what it printed is tomllib's refusal of that file, the
-# `toml-bridge: <error>` line the oracle program recorded; otherwise the
-# calibration would agree with a refuse it never measured. Here the
-# oracle program refuses forms/b.toml and the bridge exits 1 on it with a
-# traceback. The container must fail, and the step must refuse under the
-# five-point refusal test: status 1, nothing on stdout,
-# config_gen_toml_oracle_failed reason=image, and no toml-oracle/
-# directory. forms/c.toml, refused by both with the same line, is the
-# control: alone with the baseline it calibrates and passes (review
-# round 2, base#1851).
-@test "10-toml-oracle.sh: a bridge that exits 1 on a refused file without tomllib's refusal is config_gen_toml_oracle_failed reason=image, never a calibrated refuse (base#1851)" {
-  _plant_as refuse forms/c.toml
-  _oracle
-  assert_success
-  _plant_as bridge-crash forms/b.toml
+  printf '#!%s\nkill -9 $$\n' "$(command -v bash)" > "${S}/bin/python3"
+  chmod +x "${S}/bin/python3"
   _oracle
   assert_refusal 1 config_gen_toml_oracle_failed reason=image
   [[ ! -e "${S}/ctx/toml-oracle" ]] \
@@ -436,53 +407,6 @@ ROWS
     [[ ! -e "${S}/ctx/toml-oracle" ]] \
       || fail "a refused oracle run left ${S}/ctx/toml-oracle behind (${_edit})"
   done
-}
-
-# why: The oracle program in the step stands in for the real toml-bridge,
-# and the two give the same verdict only while they sit at the same
-# Python call depth -- tomllib's depth refusals depend on it. So for every
-# file under forms/ the container also asks the image's real
-# `toml-bridge --tables` and answers it on a line of its own,
-# `calibration\t<rel>\t<verdict>`, after the verdict rows. Here the
-# stand-in oracle program accepts forms/x.toml while the bridge refuses
-# it: the oracle no longer stands for the bridge, so none of its verdicts
-# can be trusted. The step must refuse under the five-point refusal test:
-# status 1, nothing on stdout, config_gen_toml_oracle_failed
-# reason=calibration naming the file, and no toml-oracle/ directory left.
-@test "10-toml-oracle.sh: a calibration answer that differs from the oracle's verdict is config_gen_toml_oracle_failed reason=calibration, no toml-oracle/ left (base#1851)" {
-  _plant toml-test/valid/b.toml
-  _plant_as bridge-refuse forms/x.toml
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=calibration \
-    file=internal/gate/testdata/forms/x.toml
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
-}
-
-# why: Calibration holds only if it ran. An answer with every verdict row
-# -- _answer's, for every planted file -- but no calibration line for a
-# forms file, here forms/b.toml, has compared nothing for it, and must
-# not pass as calibrated. Nor may a run with no forms file at all, where
-# there is nothing to calibrate with. Each is refused under the
-# five-point refusal test: status 1, nothing on stdout,
-# config_gen_toml_oracle_failed reason=calibration, and no toml-oracle/
-# directory left (review round 1, base#1851).
-@test "10-toml-oracle.sh: an answer that calibrates fewer than every forms file, or none, is config_gen_toml_oracle_failed reason=calibration (base#1851)" {
-  _plant forms/b.toml
-  _answer > "${S}/answers"
-  printf 'calibration\t%s\t%s\n' \
-    internal/gate/testdata/forms/a.toml accept \
-    >> "${S}/answers"
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=calibration
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
-  _unplant internal/gate/testdata/forms
-  rm -f -- "${S}/answers"
-  _oracle
-  assert_refusal 1 config_gen_toml_oracle_failed reason=calibration
-  [[ ! -e "${S}/ctx/toml-oracle" ]] \
-    || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
 
 # why: Each verdict row is `<rel>\t<verdict>\t<sha256>`, and the

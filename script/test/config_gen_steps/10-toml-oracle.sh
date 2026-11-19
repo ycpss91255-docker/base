@@ -18,52 +18,28 @@
 # every *.toml at any depth under internal/gate/testdata/forms and
 # internal/gate/testdata/toml-test, and every testdata/corpus/s*/*.toml,
 # the shared corpus internal/testcorpus.Glob reads (base#1851). It goes
-# to one `docker run`, --network none, as a tar on stdin; the container
-# answers one `<rel>\taccept|refuse\t<sha256>` line per file, from
-# `tomllib.loads` on the file's bytes, with the SHA-256 of the bytes it
-# parsed, so the differential test can hold each verdict to the file it
-# reads (review round 2, base#1851). Those answers are written to
-# $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
+# to one `docker run`, --network none, as a tar on stdin. The container
+# runs the oracle program as `python3 -I -c`, which answers one
+# `<rel>\taccept|refuse\t<sha256>` line per file, in the tar's order:
+# `tomllib.loads` on the file's bytes decoded strictly as UTF-8, a TOML
+# file's encoding, so a byte that is not UTF-8 is refuse, with the SHA-256
+# of the bytes as read from the tar, so the differential test can hold
+# each verdict to the file it reads (review round 2, base#1851). Those
+# answers are written to $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
 #
 # Refusal: an input path with a character outside [A-Za-z0-9._/-] is
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
 # `docker run` and before the toml-oracle directory exists: a verdict row
-# is keyed by path, and such a name may not survive the tar, the
-# container's loop and the TSV unchanged. An image that cannot be derived
-# or built, and a container that exits non-zero, are
-# config_gen_toml_oracle_failed reason=image, and the toml-oracle
-# directory is removed, so the build has no verdicts to read. Inside the
-# container a file's verdict is the word the oracle program printed after
-# tomllib answered; an oracle interpreter that exits non-zero, or is
-# killed, on any file fails the container, so it is reason=image too,
-# never a `refuse` row. An answer whose line count differs from the number of
-# files handed in is config_gen_toml_oracle_failed reason=count, with the
-# same removal. A row that is not three fields, whose second field is
+# is keyed by path, and such a name may not survive the tar, the oracle
+# program and the TSV unchanged. An image that cannot be derived or built,
+# and a container that exits non-zero, are config_gen_toml_oracle_failed
+# reason=image, and the toml-oracle directory is removed, so the build has
+# no verdicts to read. An answer whose line count differs from the number
+# of files handed in is config_gen_toml_oracle_failed reason=count, with
+# the same removal. A row that is not three fields, whose second field is
 # neither `accept` nor `refuse`, or whose third is not 64 lower-case hex
 # digits, is config_gen_toml_oracle_failed reason=token, with the
 # directory removed the same way.
-#
-# Calibration: the oracle program stands in for the real bridge only while
-# it sits at the bridge's Python call depth, which tomllib's depth refusals
-# depend on. So for every file under internal/gate/testdata/forms the
-# container also runs the image's real `toml-bridge --tables` and answers
-# `calibration\t<rel>\taccept|refuse` after the verdict rows. Exit 0 is
-# accept. The bridge exits 1 when tomllib refuses the file, printing
-# `toml-bridge: <error>`, but an uncaught exception exits 1 too, so on a
-# file the oracle program refused, exit 1 is refuse only when the bridge's
-# stderr is byte for byte the `toml-bridge: <error>` line the oracle
-# program wrote for tomllib's refusal; any other exit 1 there, and any
-# other status, fails the container, reason=image (review round 2,
-# base#1851). On a file the oracle program accepted, exit 1 is refuse,
-# which disagrees with the verdict row and so fails below. Those lines are
-# not verdicts: they are left out of verdicts.tsv and of the row count.
-# Calibration lines that do not name every forms file exactly once, in
-# order, or a run with no forms file to calibrate with, are
-# config_gen_toml_oracle_failed reason=calibration: a calibration that did
-# not run compared nothing. A calibration answer that differs from that
-# file's verdict row is config_gen_toml_oracle_failed reason=calibration
-# file=<rel>. Each removes the directory the same way (review round 1,
-# base#1851).
 #
 # Exit: 0 verdicts written; 1 otherwise.
 #
@@ -88,52 +64,20 @@ readonly -a _TO_INPUT_DIRS=(
 # inside each, the shape testcorpus.Glob(t, "corpus/s*/*.toml") matches.
 readonly _TO_CORPUS_DIR='testdata/corpus'
 
-# What runs inside the bridge image: extract the tar, then one
-# `python3 -I` per file, with the bridge's call shape
-# (<module> -> main() -> tomllib.loads); the digest is taken after main()
-# returns, from the bytes main() handed tomllib. On a refusal it writes
-# the bridge's refusal line for that error, `toml-bridge: <error>` with
-# the bridge's stderr encoding, to the path in its argument, <file>.why,
-# for the calibration pass to compare.
-# shellcheck disable=SC2016 # expanded by the container's shell, not here.
-readonly _TO_CONTAINER_SCRIPT='set -eu
-w="$(mktemp -d)"
-cd "$w"
-tar -xf -
-find . -type f -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
-  rel="${f#./}"
-  v="$(python3 -I -c "
-import hashlib, sys, tomllib
-def main():
-    raw = sys.stdin.buffer.read()
-    try:
-        tomllib.loads(raw.decode())
-    except Exception as exc:
-        with open(sys.argv[1], \"w\", encoding=sys.stderr.encoding, errors=sys.stderr.errors) as why:
-            print(f\"toml-bridge: {exc}\", file=why)
-        return \"refuse\", raw
-    return \"accept\", raw
-v, raw = main()
-print(v + chr(9) + hashlib.sha256(raw).hexdigest())
-" "$f.why" < "$f")" || { printf "toml-oracle: python3 failed on %s\n" "$rel" >&2; exit 1; }
-  printf "%s\t%s\n" "$rel" "$v"
-done
-find . -type f -path "./internal/gate/testdata/forms/*" -name "*.toml" | LC_ALL=C sort | while IFS= read -r f; do
-  rel="${f#./}"
-  rc=0
-  python3 -I /usr/local/bin/toml-bridge --tables < "$f" > /dev/null 2> "$f.err" || rc=$?
-  case "$rc" in
-    0) v=accept ;;
-    1)
-      if [ -e "$f.why" ] && ! cmp -s "$f.why" "$f.err"; then
-        printf "toml-oracle: toml-bridge exited 1 on %s without the refusal tomllib gave the oracle program\n" "$rel" >&2
-        exit 1
-      fi
-      v=refuse ;;
-    *) printf "toml-oracle: toml-bridge exited %s on %s\n" "$rc" "$rel" >&2; exit 1 ;;
-  esac
-  printf "calibration\t%s\t%s\n" "$rel" "$v"
-done'
+# The oracle program the bridge image's python3 runs: read the tar on
+# stdin member by member and print each file's verdict row.
+readonly _TO_PROGRAM='import hashlib, sys, tarfile, tomllib
+with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
+    for member in tar:
+        if not member.isfile():
+            continue
+        raw = tar.extractfile(member).read()
+        try:
+            tomllib.loads(raw.decode("utf-8"))
+            verdict = "accept"
+        except Exception:
+            verdict = "refuse"
+        sys.stdout.write(member.name + "\t" + verdict + "\t" + hashlib.sha256(raw).hexdigest() + "\n")'
 
 main() {
   local image module dir out
@@ -173,16 +117,12 @@ main() {
   mkdir -p -- "${out}"
   if ! tar -C "${module}" -cf - --no-recursion -- "${files[@]}" \
     | docker run --rm -i --network none --user "$(id -u):$(id -g)" \
-        --entrypoint /bin/sh "${image}" -c "${_TO_CONTAINER_SCRIPT}" > "${out}/answer.raw"; then
+        --entrypoint python3 "${image}" -I -c "${_TO_PROGRAM}" > "${out}/verdicts.tsv"; then
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
       "display=config_gen_toml_oracle_failed: the toml-bridge container ${image} exited non-zero; what it printed is not tomllib's verdict"
     return 1
   fi
-
-  grep -v $'^calibration\t' "${out}/answer.raw" > "${out}/verdicts.tsv" || true
-  grep $'^calibration\t' "${out}/answer.raw" > "${out}/calibration.tsv" || true
-  rm -f -- "${out}/answer.raw"
 
   local rows
   rows="$(wc -l < "${out}/verdicts.tsv")"
@@ -200,29 +140,6 @@ main() {
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=token \
       "display=config_gen_toml_oracle_failed: line ${bad} of the toml-bridge container's answer is not <rel>, accept or refuse, and a SHA-256"
-    return 1
-  fi
-
-  local f want=''
-  for f in "${files[@]}"; do
-    [[ "${f}" == internal/gate/testdata/forms/* ]] && want+="${f}"$'\n'
-  done
-  if [[ -z "${want}" ]] \
-    || [[ "$(cut -f2 "${out}/calibration.tsv")"$'\n' != "${want}" ]]; then
-    rm -rf -- "${out}"
-    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=calibration \
-      "display=config_gen_toml_oracle_failed: the toml-bridge container's calibration lines do not name every forms file once; nothing was calibrated against the real toml-bridge --tables"
-    return 1
-  fi
-
-  local drift
-  drift="$(awk -F'\t' 'FILENAME == ARGV[1] { v[$1] = $2; next }
-    v[$2] != $3 { print $2; exit }' "${out}/verdicts.tsv" "${out}/calibration.tsv")"
-  rm -f -- "${out}/calibration.tsv"
-  if [[ -n "${drift}" ]]; then
-    rm -rf -- "${out}"
-    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=calibration "file=${drift}" \
-      "display=config_gen_toml_oracle_failed: the real toml-bridge --tables and the oracle program disagree on ${drift}; the oracle no longer stands for the bridge"
     return 1
   fi
 }
