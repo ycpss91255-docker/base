@@ -25,7 +25,9 @@
 #
 # Refusal: a container that exits non-zero is config_gen_toml_oracle_failed
 # reason=image, and the toml-oracle directory is removed, so the build has
-# no verdicts to read.
+# no verdicts to read. An answer whose line count differs from the number
+# of files handed in is config_gen_toml_oracle_failed reason=count, with
+# the same removal.
 #
 # Exit: 0 verdicts written; 1 otherwise.
 #
@@ -105,6 +107,15 @@ main() {
     rm -rf -- "${out}"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
       "display=config_gen_toml_oracle_failed: the toml-bridge container ${image} exited non-zero; what it printed is not tomllib's verdict"
+    return 1
+  fi
+
+  local rows
+  rows="$(wc -l < "${out}/verdicts.tsv")"
+  if (( rows != ${#files[@]} )); then
+    rm -rf -- "${out}"
+    _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=count \
+      "display=config_gen_toml_oracle_failed: the toml-bridge container answered ${rows} lines for ${#files[@]} files"
     return 1
   fi
 }
