@@ -25,7 +25,10 @@
 # file's encoding, so a byte that is not UTF-8 is refuse, with the SHA-256
 # of the bytes as read from the tar, so the differential test can hold
 # each verdict to the file it reads (review round 2, base#1851). Those
-# answers are written to $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
+# answers are written to $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv. Only
+# a UnicodeDecodeError or a TOMLDecodeError is refuse: any other exception
+# (a RecursionError on a deeply nested value) is not tomllib's judgement,
+# so the program exits non-zero and the step refuses as reason=image.
 #
 # Refusal: an input path with a character outside [A-Za-z0-9._/-] is
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
@@ -75,7 +78,7 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
         try:
             tomllib.loads(raw.decode("utf-8"))
             verdict = "accept"
-        except Exception:
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
             verdict = "refuse"
         sys.stdout.write(member.name + "\t" + verdict + "\t" + hashlib.sha256(raw).hexdigest() + "\n")'
 
