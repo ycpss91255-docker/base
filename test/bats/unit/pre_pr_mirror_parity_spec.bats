@@ -1030,6 +1030,45 @@ STUB
   assert_output --partial "::error::commit ${_bad}"
 }
 
+# why: A run with `--base X` hands X to every planned command as
+# PRE_PR_MIRROR_BASE. Without it the attribution leg fell back to
+# origin/main and walked commits a PR from X would never carry, and no
+# spec noticed. Here the offender is the base itself and origin/main points
+# below it, so only a leg that walks <base>..HEAD passes. The marker is
+# built from parts so the repo's own attribution guards do not fire here.
+@test "pre-PR mirror: --base hands its base to the commit-attribution leg, not origin/main (base#1989)" {
+  _require_mirror
+  local _root _base _real _r="${SCRATCH}/repo"
+  _real="$(command -v bash)"
+  _root="$(_make_mirror_repo)"
+  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q \
+    -m "$(printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
+      Co Authored By Cla ude noreply anthropic com)"
+  _base="$(git -C "${_r}" rev-parse HEAD)"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "fix: clean"
+  git -C "${_r}" update-ref refs/remotes/origin/main "${_root}"
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/bash" <<STUB
+#!${_real}
+if [[ "\${1:-}" == -c ]]; then
+  printf '%s\n' "\${2}" >> "${SCRATCH}/ran"
+  [[ "\${2}" == *--commit-attribution* ]] && exec "${_real}" -c "\${2}"
+  exit 0
+fi
+exec "${_real}" "\$@"
+STUB
+  chmod +x "${SCRATCH}/bin/bash"
+  _stub_docker x86_64
+  run env -u PRE_PR_MIRROR_BASE PATH="${SCRATCH}/bin:${PATH}" "${_real}" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  refute_output --partial "::error::commit"
+  grep -qF -- '--commit-attribution' "${SCRATCH}/ran" \
+    || fail "the run never planned the commit-attribution leg"
+}
+
 # ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
 #
 # The mirror attests the roster through `just test`, so the no-flag
