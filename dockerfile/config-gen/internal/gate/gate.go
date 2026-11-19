@@ -4,7 +4,9 @@
 // comma in an inline table, a time without seconds, and a leading byte
 // order mark. It also refuses a date-bearing value with year 0000 and a
 // datetime whose offset hour is above 23 or offset minute above 59, which
-// BurntSushi v1.6.0 accepts and tomllib refuses (base#1851).
+// BurntSushi v1.6.0 accepts and tomllib refuses (base#1851), and a key
+// path a document defines twice, which tomllib refuses and BurntSushi
+// v1.6.0 accepts in some forms (base#1851).
 package gate
 
 import (
@@ -45,6 +47,13 @@ const (
 	// whose offset minute is above 59, which the TOML 1.0 oracle refuses
 	// at the offset's sign (base#1851).
 	ReasonOffsetRange
+	// ReasonDuplicate is a key path defined a second time where nothing
+	// may extend it: a key assigned twice, a path through a value, or a
+	// [[path]] over a value that is not an array of tables (base#1851).
+	ReasonDuplicate
+	// ReasonRedefine is a table header, or a dotted key, whose path names
+	// a table that a header or dotted keys already defined (base#1851).
+	ReasonRedefine
 )
 
 // bomPrefixes is the whole list of leading byte order marks the decoder
@@ -94,7 +103,9 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // token after `=` or an array's opening `[` that is a date-bearing value
 // with year 0000, or the sign of a datetime's offset whose hour is
 // above 23 or whose minute is above 59; or the first byte of a leading byte order mark. The same bytes in a comment, a literal string or a
-// multi-line literal are TOML 1.0 and are accepted.
+// multi-line literal are TOML 1.0 and are accepted. When none of those
+// is there, it refuses the first byte of the key or header that defines a
+// key path a second time (tables, base#1851).
 func Check(label string, src []byte) error {
 	for _, p := range bomPrefixes {
 		if bytes.HasPrefix(src, p) {
@@ -105,6 +116,9 @@ func Check(label string, src []byte) error {
 	// A nil *Refusal must come back as a nil error, not a typed nil.
 	if r := read(label, src, &st); r != nil {
 		return r
+	}
+	if err := newTables(label, src).document(); err != nil && !errors.Is(err, errStop) {
+		return err
 	}
 	return nil
 }
