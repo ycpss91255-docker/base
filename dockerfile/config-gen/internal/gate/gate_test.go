@@ -123,3 +123,51 @@ func TestCheckEscapeInMultiLineBasicString(t *testing.T) {
 		})
 	}
 }
+
+// A multi-line literal string may end in one or two quotes of content
+// before its closing delimiter, so the first two strings below hold x
+// plus one and x plus two quotes. A gate that closes one at the first
+// triple quote reads the extra quotes as a literal string that swallows
+// or invents a basic string (base#1850). Columns are counted by hand:
+//
+//	`a = '''x''''`
+//	`a = '''x'''''`
+//	`b = "\e"`                b(1) ' '(2) =(3) ' '(4) "(5) \(6)
+//	`a = ['''x'''', "\e", '']` a(1) ' '(2) =(3) ' '(4) [(5) '(6) '(7) '(8) x(9) '(10) '(11) '(12) '(13) ,(14) ' '(15) "(16) \(17)
+//
+// In the nil row the escape is inside a literal string; a first-triple
+// close pairs the fourth quote with the one before the double quote and
+// reads the escape as one in a basic string. BurntSushi decodes every
+// row.
+func TestCheckClosesMultiLineLiteralAtLastQuote(t *testing.T) {
+	for _, tc := range []struct {
+		name, src string
+		line, col int // 0: Check must return nil
+	}{
+		{"four-quotes-next-line", "a = '''x''''\nb = \"\\e\"\n", 2, 6},
+		{"five-quotes-next-line", "a = '''x'''''\nb = \"\\e\"\n", 2, 6},
+		{"four-quotes-array", "a = ['''x'''', \"\\e\", '']\n", 1, 17},
+		{"four-quotes-literal-after", "a = ['''x'''', '\"\\e\"']\n", 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var v map[string]any
+			if _, err := toml.Decode(tc.src, &v); err != nil {
+				t.Fatalf("toml.Decode(%q) = %v, want nil", tc.src, err)
+			}
+			err := Check("t.toml", []byte(tc.src))
+			if tc.line == 0 {
+				if err != nil {
+					t.Fatalf("Check(%q) = %v, want nil", tc.src, err)
+				}
+				return
+			}
+			var r *Refusal
+			if !errors.As(err, &r) {
+				t.Fatalf("Check(%q) = %v, want *Refusal", tc.src, err)
+			}
+			if r.File != "t.toml" || r.Line != tc.line || r.Col != tc.col || r.Reason != ReasonEscape {
+				t.Fatalf("Refusal = {%q %d %d %v}, want {\"t.toml\" %d %d ReasonEscape}", r.File, r.Line, r.Col, r.Reason, tc.line, tc.col)
+			}
+		})
+	}
+}
