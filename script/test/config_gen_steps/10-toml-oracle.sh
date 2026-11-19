@@ -23,8 +23,12 @@
 # on the file's bytes. Those answers are written to
 # $CONFIG_GEN_CTX/toml-oracle/verdicts.tsv.
 #
-# Refusal: a container that exits non-zero is config_gen_toml_oracle_failed
-# reason=image, and the toml-oracle directory is removed, so the build has
+# Refusal: an input path with a character outside [A-Za-z0-9._/-] is
+# config_gen_toml_oracle_failed reason=name file=<rel>, before any
+# `docker run` and before the toml-oracle directory exists: a verdict row
+# is keyed by path, and such a name may not survive the tar, the
+# container's loop and the TSV unchanged. A container that exits non-zero
+# is config_gen_toml_oracle_failed reason=image, and the toml-oracle directory is removed, so the build has
 # no verdicts to read. An answer whose line count differs from the number
 # of files handed in is config_gen_toml_oracle_failed reason=count, with
 # the same removal. A row whose second field is neither `accept` nor
@@ -118,6 +122,15 @@ main() {
         -path "${corpus}/s*/*.toml"
     } | LC_ALL=C sort)
   fi
+
+  local f
+  for f in "${files[@]}"; do
+    if [[ ! "${f}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+      _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=name "file=${f}" \
+        "display=config_gen_toml_oracle_failed: ${f} has a character outside [A-Za-z0-9._/-]; its verdict row could not be keyed by path"
+      return 1
+    fi
+  done
 
   out="${CONFIG_GEN_CTX:?config_gen_steps run under CONFIG_GEN_CTX}/toml-oracle"
   mkdir -p -- "${out}"
