@@ -7374,7 +7374,7 @@ rolling tag itself (#697, #1010)
 | `self-test.yaml: ci-rollup needs single-issue-pr and classify never gates it (base#1629)` | Branch protection requires ci-rollup alone. A single-issue-pr job outside its needs would be a check nobody is blocked by, and a select_single_issue_pr key would let classify skip it on a doc-only PR, which is exactly where a bundled PR slips through (base#1629). |
 | `self-test.yaml: single-issue-pr job runs bash script/ci/single_issue_pr.sh (base#1629)` | needs: alone only orders the job. A single-issue-pr job whose step stopped invoking the script would stay green on every PR and gate nothing, so the job body itself must run the script (base#1629). |
 
-### test/bats/unit/setup_cmd_spec.bats (226)
+### test/bats/unit/setup_cmd_spec.bats (227)
 
 Mirrors `lib/setup_cmd.sh`. The git-style subcommand dispatcher and its
 mutating verbs (#49): dispatch (Phase B-1), `set` / `show` / `list` (Phase
@@ -7617,6 +7617,7 @@ isolated `_setup_known_section` / `SCHEMA_SECTIONS` (#561) unit checks.
 | `apply --output rebases a bare context with an interpolated component (base#1087)` | `contexts/${FLAVOUR}` is a bare relative path whose ROOT is fixed and whose leaf is interpolated, so it is as local as `./contexts/...`. Only an interpolation that decides the root -- a value that STARTS with one -- can be left alone, and a dollar sign anywhere was standing in for that distinction. |
 | `apply preserves an interpolation configured in [logging] local_path (base#1087)` | Escaping the whole assembled logging mount was a regression on the PLAIN apply too: a `${LOG_INSTANCE}` the operator put in `[logging] local_path` became the literal `$${LOG_INSTANCE}`, so compose stopped substituting it and the logs mounted a directory named after the variable. Only the filesystem-derived prefix is a literal that needs escaping; what the operator configured is an interpolation they meant. |
 | `show tells a dotless spec from a split it could not make (base#1185)` | base#1185 -- the splitter gained a second way to answer non-zero, and `show` was reading both as "this spec names a whole section" |
+| `_setup_conf_check_known reads a layer's tables through config-gen, one run (base#1937)` | base#1937 -- the per-layer declared-table read of _setup_conf_check_known goes through config_gen_tables (the config-gen image's `tables` command), not the bridge's `--tables` view. A docker shim records every argv; one layer check must record one config-gen run whose arguments end `tables --name <layer> /in/f`, and no run carrying `--tables`. |
 
 ### test/bats/unit/setup_conf_migrate_spec.bats (15)
 
