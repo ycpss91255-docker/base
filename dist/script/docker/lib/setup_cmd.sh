@@ -102,10 +102,11 @@ _setup_refuse_unknown_key() {
 # by the row its first entry would take (the bridge's --empty-families
 # view), so a family its table does not read is refused like a key.
 #
-# Tables are judged from the layer's own table list (the bridge's
-# config-gen `tables` view, base#1937), not only from its key/value rows: a table with no
-# entry -- `[deploy2]` alone, or holding only `args = []` -- projects no
-# row, and a row walk passed it with exit 0 (base#1328 review).
+# Tables are judged from the layer's own table list (config_gen_tables,
+# the config-gen `tables` view, base#1937), not only from its key/value
+# rows: a table with no entry -- `[deploy2]` alone, or holding only
+# `args = []` -- projects no row, and a row walk passed it with exit 0
+# (base#1328 review).
 #
 # A [stage:<name>] table, and anything under it, is not judged here:
 # its keys already pass _validate_stage_override_key where the stage is
