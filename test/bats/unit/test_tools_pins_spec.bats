@@ -318,3 +318,87 @@ ARG JUST_VERSION=1.58.0')"
   run bash "${_acc}" check ALPINE_VERSION '3.21.7'
   assert_success
 }
+
+# ── The builder-only pin class (base#2023) ───────────────────────────
+#
+# The golang ARG of the Go build stage pins a compiler that is NOT in the
+# final image, so it is asked of the artefact the builder made: the
+# `toolchain <x.y.z>` line of `config-gen version`.
+
+# _seed_builder_tree <extra-dockerfile-lines> -- the four classic pins, a
+# GOLANG_VERSION declaration, then whatever follows it.
+_seed_builder_tree() {
+  _seed_tree "ARG BATS_VERSION=1.13.0
+ARG ALPINE_VERSION=3.21
+ARG KCOV_VERSION=v43
+ARG JUST_VERSION=1.58.0
+ARG GOLANG_VERSION=1.24.3
+${1}"
+}
+
+_GOLANG_USED='FROM golang:${GOLANG_VERSION}-alpine AS config-gen-builder'
+
+# why: base#2023 -- the builder-only ARG gets a row, after the rows already
+# printed, with the toolchain probe.
+@test "test-tools pins: roster carries a GOLANG_VERSION row last, with the toolchain probe (base#2023)" {
+  local _root _want
+  _root="$(_seed_builder_tree "${_GOLANG_USED}")"
+  _want="$(printf 'GOLANG_VERSION\t1.24.3\tconfig-gen version | sed -n "s/^toolchain //p"')"
+  run bash "${_root}/script/ci/test-tools-pins.sh" roster
+  assert_success
+  [[ "${lines[-1]}" == "${_want}" ]] || fail \
+    "the last roster row is '${lines[-1]}', expected '${_want}'"
+}
+
+# why: base#2023 -- agreement and the two refusals, with the pin in the message.
+@test "test-tools pins: check GOLANG_VERSION accepts 1.24.3 and refuses 1.24.31 and 1.23.1 (base#2023)" {
+  local _root _acc
+  _root="$(_seed_builder_tree "${_GOLANG_USED}")"
+  _acc="${_root}/script/ci/test-tools-pins.sh"
+  run bash "${_acc}" check GOLANG_VERSION '1.24.3'
+  assert_success
+  run bash "${_acc}" check GOLANG_VERSION '1.24.31'
+  assert_failure 1
+  assert_output --partial "test-tools-pins: GOLANG_VERSION is pinned at 1.24.3 but the probe answered '1.24.31'"
+  run bash "${_acc}" check GOLANG_VERSION '1.23.1'
+  assert_failure 1
+  assert_output --partial "test-tools-pins: GOLANG_VERSION is pinned at 1.24.3 but the probe answered '1.23.1'"
+}
+
+# why: base#2023 -- a config-gen that prints no toolchain line yields an
+# empty probe answer, which check refuses as a probe that did not run.
+@test "test-tools pins: the GOLANG_VERSION probe prints nothing without a toolchain line (base#2023)" {
+  local _root _probe _bin _out
+  _root="$(_seed_builder_tree "${_GOLANG_USED}")"
+  _probe="$(bash "${_root}/script/ci/test-tools-pins.sh" roster | awk -F'\t' '$1 == "GOLANG_VERSION" { print $3 }')"
+  [[ -n "${_probe}" ]] || fail "the roster carries no GOLANG_VERSION probe"
+  _bin="${SCRATCH}/bin"
+  mkdir -p "${_bin}"
+  printf '#!/bin/sh\necho "config-gen dev"\n' > "${_bin}/config-gen"
+  chmod +x "${_bin}/config-gen"
+  _out="$(PATH="${_bin}:${PATH}" bash -c "${_probe}")"
+  [[ -z "${_out}" ]] || fail "the probe printed '${_out}', expected nothing"
+  run bash "${_root}/script/ci/test-tools-pins.sh" check GOLANG_VERSION ''
+  assert_failure 1
+  assert_output --partial 'the probe for GOLANG_VERSION printed nothing'
+}
+
+# why: base#2023 -- the class must not hide a pin that ships in the image.
+@test "test-tools pins: a builder-only ARG no stage uses is refused as builder-only (base#2023)" {
+  local _root
+  _root="$(_seed_builder_tree 'FROM alpine:3.21')"
+  run bash "${_root}/script/ci/test-tools-pins.sh" roster
+  assert_failure 2
+  assert_output --partial 'GOLANG_VERSION'
+  assert_output --partial 'builder-only'
+}
+
+# why: base#2023 -- an unlisted pin is still refused.
+@test "test-tools pins: an unlisted FOO_VERSION is still refused next to the builder-only class (base#2023)" {
+  local _root
+  _root="$(_seed_builder_tree "${_GOLANG_USED}
+ARG FOO_VERSION=1.0")"
+  run bash "${_root}/script/ci/test-tools-pins.sh" roster
+  assert_failure 2
+  assert_output --partial 'pins FOO_VERSION but this file carries no probe for it'
+}
