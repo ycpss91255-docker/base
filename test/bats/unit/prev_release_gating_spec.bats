@@ -42,9 +42,10 @@ teardown() {
   cleanup_mock_dir
 }
 
-# A checkout with no release tags whose remote cannot be reached: `git tag
-# --list` prints nothing and the fetch fails. Everything else git is asked
-# succeeds silently, so nothing but the tag resolution is perturbed.
+# A checkout whose upstream yields no release tags: `ls-remote` exits 0
+# with no listing and the fetch fails. Everything else git is asked
+# succeeds silently, so nothing but the tag resolution is perturbed: the
+# run stops on "upstream lists no stable release tags" (base#1729).
 _mock_tagless_offline_git() {
   mock_cmd "git" '
     case " ${*} " in

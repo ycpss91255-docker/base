@@ -1094,13 +1094,16 @@ jobs:
     # each leg's time and the checks page named it as a lint group; it is
     # a job of its own so its name says what it runs. Every leg runs it,
     # ungated, through `just`, on the shard named by its matrix entry: the
-    # twenty legs together probe every row, and a full roster per leg did
+    # legs together probe every row, and a full roster per leg did
     # not finish inside one job's timeout. Twenty, because seconds.txt
     # holds the row times PR #1589's run 42755258486 measured on eight
     # legs (13195.8 worker-seconds, the heaviest row 98.2 s), and twenty
     # is the fewest legs whose worst list-scheduling bound over 4 worker
     # slots, 239.0 s, is at most 240 s; nineteen gives 248.3 s
     # (base#1582). Those eight legs took 5 min 32 s to 8 min 22 s each.
+    # Twenty-one since base#1470 added s1j.tsv's 31 rows (their seconds
+    # measured on local 4-slot roster runs): over twenty legs the worst
+    # bound became 246.5 s; over twenty-one it is 237.5 s.
     # Whether every leg still fits is decided by the mutation_roster_spec
     # case "every mutation-roster leg's list-scheduling bound over its
     # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
@@ -1118,9 +1121,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ['1/20', '2/20', '3/20', '4/20', '5/20', '6/20', '7/20',
-                '8/20', '9/20', '10/20', '11/20', '12/20', '13/20', '14/20',
-                '15/20', '16/20', '17/20', '18/20', '19/20', '20/20']
+        shard: ['1/21', '2/21', '3/21', '4/21', '5/21', '6/21', '7/21',
+                '8/21', '9/21', '10/21', '11/21', '12/21', '13/21', '14/21',
+                '15/21', '16/21', '17/21', '18/21', '19/21', '20/21',
+                '21/21']
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2187,6 +2191,25 @@ jobs:
           CONFIG_GEN_MUTATION_CONTEXT: "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-push' || 'pr' }}"
         run: just test go-redpath ${{ matrix.shard }}/5
 
+  commit-attribution:
+    # Fails a pull request or merge group whose own commits carry AI
+    # attribution (base#1989). Only the range is walked: commits already on
+    # main are out of scope. The full history is fetched so the base commit
+    # exists to walk from. No `if:`: a push or tag run passes with a notice.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the range for AI attribution
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: bash ./script/ci/check_commit_attribution.sh
+
   ci-rollup:
     # Single aggregator required by branch protection. Every PR check
     # joins this `needs:` list so branch protection never needs to
@@ -2198,7 +2221,7 @@ jobs:
     # classify key its `if:` reads is exactly `false`. The verify step
     # finds that key through an explicit job-to-key map, never a rewrite
     # of the job name. A job with no key in the map (actionlint /
-    # classify / test-tools-image-amd64 / test-tools-image-arm64 /
+    # classify / test-tools-image-amd64 / test-tools-image-arm64 / commit-attribution /
     # doc-counts / lint-static / mutation-roster / single-issue-pr /
     # compute-shards) carries
     # no `if:`, so its SKIPPED is a workflow bug
@@ -2239,7 +2262,7 @@ jobs:
     # failure cascaded into two skips and the required check went green
     # with the whole unit suite and the coverage floor never run. Those
     # two skips fail too, because classify selected both jobs.
-    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2347,7 +2370,7 @@ jobs:
     # named in this list -- and `coverage-gate` was not, which left the
     # coverage FLOOR enforced on PRs and unenforced on the one path that
     # produces an artifact users consume.
-    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]
+    needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
