@@ -8521,7 +8521,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (17)
+### test/bats/unit/suite_prereq_spec.bats (18)
 
 | Test | Description |
 |------|-------------|
@@ -8531,6 +8531,7 @@ runs).
 | `prereq: missing HOST_UID and HOST_GID are each named (base#1423)` | the four compose tests need HOST_UID and HOST_GID (compose interpolates them with a required-variable form). A bare container has neither, and the check must say so by variable name rather than let the compose tests fail one by one. |
 | `prereq: every spelling of a path selecting the prev-release spec demands the fixture (base#1423)` | `--bats-path` resolves its target as ${REPO_ROOT}/<path>, so every spelling that names the same file or directory runs the same specs. Whether the fixture is demanded has to follow the path bats will open, not its spelling: `./test/bats/integration/prev_release_upgrade_spec.bats` used to skip the fixture (and the host preparation) while bats ran it. |
 | `prereq: a path not selecting the prev-release spec needs no fixture (base#1423)` | the normalisation must not widen the selection either: a path outside the integration directory still runs without the fixture. |
+| `prereq: a filter with no path demands the fixture whatever its regex (base#1423)` | a filter with no path (`--bats-filter` alone) runs bats over unit + integration and leaves the regex to bats, so the check cannot tell whether the regex selects a prev-release test. It demands the fixture whatever the regex, even one that matches no test at all. With a path given as well, the path alone decides. The docs state this rule, and this case pins it so a user can predict which filtered runs refuse. |
 | `prereq: HOST_UID alone missing is refused by that name (base#1423)` | each id is its own requirement. Unsetting both together would let a check that only looks at HOST_UID (and names both) pass, while a run missing only HOST_GID got through; each is removed on its own here, with the other supplied, on both the plain and the system dispatch. |
 | `prereq: HOST_GID alone missing is refused by that name (base#1423)` | the mirror case, and the one a HOST_UID-only check lets through: a run that set HOST_UID but not HOST_GID must still be refused. |
 | `prereq: every missing item is reported in a single refusal (base#1423)` | a person fixing a bare run should not have to rerun once per missing item; every gap is reported in the one refusal. |

@@ -123,6 +123,21 @@ _seed_tags() {
   done
 }
 
+# why: a filter with no path (`--bats-filter` alone) runs bats over unit +
+# integration and leaves the regex to bats, so the check cannot tell
+# whether the regex selects a prev-release test. It demands the fixture
+# whatever the regex, even one that matches no test at all. With a path
+# given as well, the path alone decides. The docs state this rule, and
+# this case pins it so a user can predict which filtered runs refuse.
+@test "prereq: a filter with no path demands the fixture whatever its regex (base#1423)" {
+  _prereq_run BATS_FILTER='^no test is titled this$'
+  assert_failure
+  assert_output --partial ".prev-release/tags.txt"
+  _prereq_run BATS_FILE=./test/bats/unit/ BATS_FILTER='prev_release'
+  assert_success
+  assert_output ""
+}
+
 # _one_id_missing <unset-var> <system>: the check with the fixture seeded,
 # one host id removed and the other supplied.
 _one_id_missing() {
