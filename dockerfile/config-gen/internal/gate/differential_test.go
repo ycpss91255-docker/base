@@ -591,35 +591,56 @@ func differential(rows []string, files map[string]string, exp oracleExpect) []st
 	return problems
 }
 
-// The int64 exception is a closed set on every path: a file outside
-// int64Rows that takes it is named, whether it sits in forms, the vendored
-// toml-test or the shared corpus, so a new case BurntSushi refuses for an
-// out-of-int64 integer, which tomllib accepts, is a disagreement and not a
-// silent match (review round 2, base#1851). Each file holds 2^63, which
-// BurntSushi refuses only for its range, and its row is tomllib's accept
-// with the file's digest, so the verdicts agree and only the set decides.
-// int64-over.toml, a member of the set, is the control: no problem.
+// The int64 exception is a closed set on every path, and only BurntSushi
+// refusals that are all out-of-int64 integers reach it (base#1851). Each
+// case is a planted file at a rel no live table names, with its own
+// oracleExpect, so it inherits no real file's pins; the row is tomllib's
+// verdict on those bytes, read from the live bridge (2^63 alone, 2^63 in
+// hex, and two out-of-int64 tokens accept; 2^63 beside `b = tru`, and a
+// key carrying the int64 message text beside `tru`, refuse). A file
+// outside the set that takes the exception is named on forms, the vendored
+// toml-test and the shared corpus; a file in the set that is refused for
+// a second, non-integer reason is named for not taking it.
 func TestDifferentialHoldsTheInt64ExceptionToItsSetOnEveryPath(t *testing.T) {
-	const over = "a = 9223372036854775808\n"
-	sum := sha256.Sum256([]byte(over))
-	digest := hex.EncodeToString(sum[:])
+	const (
+		forms  = "internal/gate/testdata/forms/"
+		valid  = "internal/gate/testdata/toml-test/valid/"
+		corpus = "testdata/corpus/s1/"
+		over   = "a = 9223372036854775808\n"
+		hexed  = "a = 0x8000000000000000\n"
+		two    = "a = -9223372036854775809\nb = [9223372036854775808]\n"
+		second = "a = 9223372036854775808\nb = tru\n"
+		decoy  = "\"x is out of range for int64\" = tru\n"
+	)
 	for _, tc := range []struct {
-		rel  string
-		want string // "" = no problem
+		rel, src, verdict string
+		inSet             bool
+		want              string // "" = no problem
 	}{
-		{"internal/gate/testdata/forms/int64-over.toml", ""},
-		{"internal/gate/testdata/forms/new-over.toml", "internal/gate/testdata/forms/new-over.toml: int64 exception path taken = true, want false"},
-		{"internal/gate/testdata/toml-test/valid/new-over.toml", "internal/gate/testdata/toml-test/valid/new-over.toml: int64 exception path taken = true, want false"},
-		{"testdata/corpus/s1/new-over.toml", "testdata/corpus/s1/new-over.toml: int64 exception path taken = true, want false"},
+		{forms + "planted-1.toml", over, "accept", true, ""},
+		{forms + "planted-2.toml", over, "accept", false, forms + "planted-2.toml: int64 exception path taken = true, want false"},
+		{valid + "planted-3.toml", over, "accept", false, valid + "planted-3.toml: int64 exception path taken = true, want false"},
+		{corpus + "planted-4.toml", over, "accept", false, corpus + "planted-4.toml: int64 exception path taken = true, want false"},
+		{forms + "planted-5.toml", hexed, "accept", true, ""},
+		{valid + "planted-6.toml", two, "accept", true, ""},
+		{corpus + "planted-7.toml", second, "refuse", false, ""},
+		{forms + "planted-8.toml", second, "refuse", true, forms + "planted-8.toml: int64 exception path taken = false, want true"},
+		{valid + "planted-9.toml", decoy, "refuse", false, ""},
 	} {
 		p := filepath.Join(t.TempDir(), "f.toml")
-		if err := os.WriteFile(p, []byte(over), 0o600); err != nil {
+		if err := os.WriteFile(p, []byte(tc.src), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, problems := oracleDifferential(writeOracle(t, []string{tc.rel + "\taccept\t" + digest}), map[string]string{tc.rel: p}, liveExpect)
+		sum := sha256.Sum256([]byte(tc.src))
+		row := tc.rel + "\t" + tc.verdict + "\t" + hex.EncodeToString(sum[:])
+		exp := oracleExpect{int64Rows: map[string]bool{}}
+		if tc.inSet {
+			exp.int64Rows[tc.rel] = true
+		}
+		_, problems := oracleDifferential(writeOracle(t, []string{row}), map[string]string{tc.rel: p}, exp)
 		got := strings.Join(problems, "\n")
 		if got != tc.want {
-			t.Errorf("%s: problems = %q, want %q", tc.rel, got, tc.want)
+			t.Errorf("%s (%q, in set %v): problems = %q, want %q", tc.rel, tc.src, tc.inSet, got, tc.want)
 		}
 	}
 }
