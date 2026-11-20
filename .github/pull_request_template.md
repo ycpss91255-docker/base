@@ -1,24 +1,24 @@
 ## Linked issue
 
 Closes #
-<!-- Use `Closes #NNN` to close the issue on merge, or `Relates to #NNN`
-     when the issue stays open. In prose, write `base#NNN`. -->
+<!-- 用 `Closes #NNN` 在合併時關閉 issue；若 issue 要保持開啟，改用
+     `Relates to #NNN`。在內文中請寫成 `base#NNN`。 -->
 
 ## Single concern and atomic commits
 
-- [ ] This PR solves one core problem only, with no unrelated refactor or dependent change mixed in.
-- [ ] If the work has several logical steps, they are tidied into clean atomic commits.
+- [ ] 這個 PR 只解決一個核心問題，沒有混入無關的重構或相依的變更。
+- [ ] 如果工作有數個邏輯步驟，已整理成乾淨的原子 commit。
 
 ## Control flow
 
-- [ ] New or changed code nests control flow at most 3 levels deep.
-- [ ] Preconditions and error handling use guard clauses (early return) to flatten the code, not arrow-shaped nesting.
+- [ ] 新增或修改的程式碼，控制流程巢狀最多 3 層。
+- [ ] 前置條件與錯誤處理使用 guard clause（提早 return）來攤平程式碼，不使用箭頭形的巢狀。
 
 ## Test and build
 
-- [ ] The image builds (Docker build and syntax checks pass).
-- [ ] The existing test matrix (Bats and unit tests) is all green.
+- [ ] 映像檔可以建置（Docker build 與語法檢查通過）。
+- [ ] 既有的測試矩陣（Bats 與單元測試）全部通過。
 
 ## Security and boundaries
 
-- [ ] The container keeps its non-privileged user boundary, and no host-specific absolute path is hardcoded.
+- [ ] 容器維持非特權使用者的邊界，且沒有寫死主機專屬的絕對路徑。
