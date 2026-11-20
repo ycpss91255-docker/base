@@ -61,7 +61,8 @@ A self-contained issue has these parts:
   production change, or a diff of roughly 150 lines or more, is split into
   child issues first. Each child is self-contained in its own right.
 
-The guard that enforces this is tracked in ycpss91255-docker/agent_harness
+The guard that enforces this is tracked in
+[ycpss91255-docker/agent_harness#51](https://github.com/ycpss91255-docker/agent_harness/issues/51)
 (the `gh-issue.sh` script is a local copy of that repo's
 `dist/agents/scripts/gh-issue.sh`).
 
