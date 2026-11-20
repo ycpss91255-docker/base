@@ -848,6 +848,7 @@ jobs:
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Warn when the runtime cache export failed
@@ -901,6 +902,7 @@ jobs:
             USER_GROUP=ci
             USER_UID=1000
             USER_GID=1000
+            TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}
             ${{ inputs.build_args }}
 
       - name: Build extra stages
