@@ -281,26 +281,36 @@ except RecursionError:
 # why: The verdicts are tomllib's only when they come from the pinned
 # bridge image, the one named by the content-digest tag of dockerfile/
 # Dockerfile.toml-bridge and the files it COPYs, never from a floating tag
-# or from whatever TOML_BRIDGE_IMAGE names. So the one `docker run` must
-# name the image tool_image_derive gives for this checkout, a
-# `toml-bridge:<12 hex>` tag, and a TOML_BRIDGE_IMAGE in the environment
-# must not reach the run (review round 1, base#1851).
-@test "10-toml-oracle.sh: the container is the pinned toml-bridge image tool_image_derive names, whatever TOML_BRIDGE_IMAGE says (base#1851)" {
-  local _want
-  _want="$(source "${R}/dist/script/docker/lib/toml_bridge.sh" && tool_image_derive toml_bridge)"
-  [[ "${_want}" =~ ^toml-bridge:[0-9a-f]{12}$ ]] \
-    || fail "tool_image_derive toml_bridge = ${_want}, want toml-bridge:<12 hex>"
-  _oracle TOML_BRIDGE_IMAGE=toml-bridge:floating
-  assert_success
-  assert_equal "$(_run_calls)" 1
-  local _a _argv=''
-  for _a in "${S}"/docker.*.argv; do
-    [[ "$(head -n1 "${_a}")" == run ]] && _argv="${_a}"
+# or from whatever TOML_BRIDGE_IMAGE names. The tag is a property of that
+# content, so it is not taken from the derivation the step itself calls:
+# the step runs twice, the second time after toml_bridge.py (a file the
+# Dockerfile COPYs) gains a comment line. Each run makes one `docker run`
+# naming a `toml-bridge:<12 hex>` image, the two tags differ, and
+# TOML_BRIDGE_IMAGE=toml-bridge:floating reaches neither run (review
+# rounds 1 and 3, base#1851).
+@test "10-toml-oracle.sh: the container is the toml-bridge image tagged by the bridge sources' content, whatever TOML_BRIDGE_IMAGE says (base#1851)" {
+  local -a _tags=()
+  local _i _a _argv _tag
+  for _i in 1 2; do
+    rm -f -- "${S}"/docker.*.argv "${S}/docker.n"
+    _oracle TOML_BRIDGE_IMAGE=toml-bridge:floating
+    assert_success
+    assert_equal "$(_run_calls)" 1
+    _argv=''
+    for _a in "${S}"/docker.*.argv; do
+      [[ "$(head -n1 "${_a}")" == run ]] && _argv="${_a}"
+    done
+    run grep -cF -- 'toml-bridge:floating' "${_argv}"
+    assert_output 0
+    _tag="$(grep -E '^toml-bridge:' "${_argv}")" \
+      || fail "run ${_i}: no toml-bridge:<tag> argument in the docker run argv"
+    [[ "${_tag}" =~ ^toml-bridge:[0-9a-f]{12}$ ]] \
+      || fail "run ${_i}: the docker run names ${_tag}, want toml-bridge:<12 hex>"
+    _tags+=("${_tag}")
+    printf '# base#1851: a bridge source edit\n' >> "${R}/dockerfile/toml_bridge.py"
   done
-  run grep -cFx -- "${_want}" "${_argv}"
-  assert_output 1
-  run grep -cF -- 'toml-bridge:floating' "${_argv}"
-  assert_output 0
+  [[ "${_tags[0]}" != "${_tags[1]}" ]] \
+    || fail "both runs name ${_tags[0]}; a toml_bridge.py edit must change the tag"
 }
 
 # why: When the pinned image cannot answer -- the container exits non-zero
