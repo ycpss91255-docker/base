@@ -1377,10 +1377,11 @@ _check_suite_prerequisites() {
      && [[ ! -f "${_root}/.prev-release/tags.txt" ]]; then
     _missing+=(".prev-release/tags.txt (run script/test/prepare-prev-release.sh on the host, or start the suite with 'just test')")
   fi
-  local _var
+  local _var _id_flag
   for _var in HOST_UID HOST_GID; do
     [[ -n "${!_var:-}" ]] && continue
-    _missing+=("${_var} (the uid:gid the suite hands the checkout back to; 'just test' exports it, a bare container needs -e ${_var}=\$(id -u|-g))")
+    if [[ "${_var}" == "HOST_UID" ]]; then _id_flag=-u; else _id_flag=-g; fi
+    _missing+=("${_var} (the uid:gid the suite hands the checkout back to; 'just test' exports it, a bare container needs -e ${_var}=\$(id ${_id_flag}))")
   done
   (( ${#_missing[@]} == 0 )) && return 0
   local _list
