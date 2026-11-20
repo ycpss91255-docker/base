@@ -7,8 +7,8 @@
 # ids before it starts a container. A bare container run (a bare docker
 # run of the test-tools image, a hosted or self-hosted job that skips the
 # host step) supplies neither, and the person running it saw sixteen
-# previous-release tests and four compose tests fail with nothing naming
-# the cause (base#1423).
+# previous-release tests and four compose tests fail one by one, well into
+# the run, instead of one refusal before it (base#1423).
 
 bats_require_minimum_version 1.5.0
 
@@ -151,6 +151,8 @@ _one_id_missing() {
   done
 }
 
+# why: the mirror case, and the one a HOST_UID-only check lets through:
+# a run that set HOST_UID but not HOST_GID must still be refused.
 @test "prereq: HOST_GID alone missing is refused by that name (base#1423)" {
   local _sys
   for _sys in 0 1; do

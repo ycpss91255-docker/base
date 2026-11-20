@@ -1180,13 +1180,36 @@ _validate_spec_target() {
 # is how the dispatch flags and the shard partition both name a spec.
 readonly _PREV_RELEASE_SPEC="test/bats/integration/prev_release_upgrade_spec.bats"
 
+# _normalize_repo_path <path>
+#   Echo <path> as the canonical repo-root-relative path that
+#   ${REPO_ROOT}/<path> opens: empty and `.` segments dropped, `..` folded
+#   into its parent. The root itself is the empty string.
+_normalize_repo_path() {
+  local -a _segs=() _kept=()
+  local _seg
+  IFS=/ read -ra _segs <<< "${1}"
+  for _seg in "${_segs[@]}"; do
+    case "${_seg}" in
+      ""|.) ;;
+      ..) if (( ${#_kept[@]} > 0 )); then unset '_kept[-1]'; fi ;;
+      *) _kept+=("${_seg}") ;;
+    esac
+  done
+  local IFS=/
+  printf '%s' "${_kept[*]}"
+}
+
 # _prev_release_spec_under <path>
 #   True when <path> -- a repo-root-relative file or directory, as
 #   `--bats-path` / `--coverage-path` name one -- selects that spec.
+#   Compared after normalising, because the dispatch hands bats
+#   ${REPO_ROOT}/<path> as spelled: `./test/...`, `test//bats/...` and
+#   `test/bats/unit/../integration/...` all open the same file (base#1423).
 _prev_release_spec_under() {
-  local _path="${1%/}"
+  local _path
+  _path="$(_normalize_repo_path "${1}")"
   # A target naming the root selects everything under it.
-  if [[ -z "${_path}" || "${_path}" == "." ]]; then
+  if [[ -z "${_path}" ]]; then
     return 0
   fi
   [[ "${_PREV_RELEASE_SPEC}" == "${_path}" \
@@ -1332,9 +1355,11 @@ _dispatch_needs_prev_release() {
 #   scratch tree because REPO_ROOT is readonly once this file is sourced).
 #   The in-container half of the prerequisites the host-side dispatch
 #   normally supplies (base#1423). A bare container run -- no `just test`
-#   in front of it -- has none of them, and used to find out by failing
-#   the tests that read them, with nothing naming the cause. Every missing
-#   one is reported in a single refusal, by name.
+#   in front of it -- has none of them, and used to find out only as the
+#   tests that read them failed, one test at a time, well into the run
+#   (each prev-release test naming the missing file). This moves that
+#   diagnosis ahead of every phase: every missing one is reported in a
+#   single refusal, by name.
 #
 #   .prev-release/tags.txt is only demanded of a dispatch that runs the
 #   spec reading it (_dispatch_needs_prev_release replays this same
