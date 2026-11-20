@@ -33,6 +33,17 @@ _check_setup_drift() {
   local _env_file="${_base}/.env.generated"
   [[ -f "${_env_file}" ]] || return 0
 
+  # The reads below use `grep -P`, which only GNU grep built with PCRE has.
+  # Each read ends in `|| true`, so a grep without it would leave every
+  # stored value empty and the comparisons would all be skipped: no drift,
+  # no output. Say so, and report drift so the caller regenerates instead of
+  # trusting a comparison that never ran (base#1644).
+  if [[ "$(printf 'K=v\n' | grep -oP '^K=\Kv' 2>/dev/null || true)" != "v" ]]; then
+    _log_warn setup drift_grep_p_unsupported \
+      "display=drift check skipped: this host's grep does not support grep -P (PCRE); the host tooling needs GNU grep, so the generated files are treated as drifted"
+    return 1
+  fi
+
   # Read stored values from .env.generated without polluting caller's env
   local _stored_hash="" _stored_df_hash="" _stored_gui="" _stored_gpu="" _stored_uid=""
   _stored_hash="$(   grep -oP '^SETUP_CONF_HASH=\K.*'       "${_env_file}" 2>/dev/null || true)"

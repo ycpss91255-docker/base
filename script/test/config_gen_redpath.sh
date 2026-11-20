@@ -14,7 +14,7 @@
 # its own gate's id first, and show every earlier gate ok -- the last is
 # what tells "this gate caught it" from "the build broke first". The
 # unmodified copy runs only as rerun (base#1547), twice on one copy; its
-# first call is the control and must pass all six gates, so the reds are
+# first call is the control and must pass all seven gates, so the reds are
 # the defects' and not the copy's.
 #
 #   case           defect                                          gate
@@ -28,6 +28,7 @@
 #   corpus-join    a test reading ../../testdata, not testcorpus   race
 #   corpus-helper  a non-test helper a test calls reads testdata   race
 #   corpus-var     a test spelling the path as "test"+"data"       race
+#   fuzz-panic     a Fuzz target that panics past its one seed     fuzz
 #   mut-unstaged   a committed package's test loses its assertion  mutation
 #                  as an unstaged edit, so every mutant survives
 #   mut-staged     the same edit, staged                           mutation
@@ -114,7 +115,7 @@
 # two copies under diff.renames=copies, a
 # typechange to a symlink -- or to a baseline holding café.txt, `a b.txt`
 # and one name per byte 0x01-0x7f but /. Each must exit 0 and print exactly
-# the six ok lines below: admission accepts every baseline the producer
+# the seven ok lines below: admission accepts every baseline the producer
 # writes, and every gate still runs after it. Each of these six plants only
 # non-Go files, so the packages its build log's mutation verdict lines name
 # must be exactly the one _RP_GREEN_SCOPE holds for it (reason
@@ -132,7 +133,7 @@
 # lists it in ignored.sha256; Dockerfile.config-gen.dockerignore must keep
 # it out of the build context, admission must accept a listed ignored file
 # the context does not hold, and so the ignored-input gate has nothing to
-# refuse: the run passes with the six ok lines. ign-excluded-go is the ign
+# refuse: the run passes with the seven ok lines. ign-excluded-go is the ign
 # case below, the same Git-ignored cmd/config-gen/zz_ign.go planted the
 # same way, with one more line in the copy's
 # Dockerfile.config-gen.dockerignore that drops it from the build context:
@@ -143,7 +144,7 @@
 # module file in the build context, so the producer lists it in
 # ignored.sha256 and admission accepts the context: the ignored-input gate
 # must refuse it after every S1b gate. The run must exit exactly 1 with
-# exactly the rerun case's six ok lines on stdout, no "unregistered log body",
+# exactly the rerun case's seven ok lines on stdout, no "unregistered log body",
 # the runner's JSON config_gen_gate_<gate>_failed as its first gate record,
 # and exactly one runner JSON record of the row's event, naming the
 # row's file (reason after_admit_detail_mismatch).
@@ -173,6 +174,7 @@
 #   gate=lint ok
 #   gate=race ok
 #   gate=coverage ok
+#   gate=fuzz ok
 #
 # on stdout, so a verdict RUN the second call took from the build cache
 # (it prints no line) fails the case instead of passing on cache state.
@@ -180,7 +182,7 @@
 # The retro case (base#1467) plants nothing either: it puts an empty root
 # commit under the copy's one commit and runs the runner with
 # CONFIG_GEN_MUTATION_BASE set to it, so every tracked module file is an
-# `A` line of the manifest. It must exit 0 with exactly the six ok lines,
+# `A` line of the manifest. It must exit 0 with exactly the seven ok lines,
 # a manifest header with that base and dirty=no, no
 # config_gen_mutation_unmapped anywhere, and one mutation line, `<pkg> ok
 # efficacy=<e>` or `<pkg> no-mutants`, for exactly each package of the
@@ -214,6 +216,11 @@
 # string testdata never appears in the planted source, so a scan of the
 # source text for it cannot be what turns the gate red.
 #
+# fuzz-panic's one seed passes, so the race gate (which runs seeds) stays
+# green; the target panics on any input of four or more bytes, which only
+# the fuzz gate's search reaches. It sits in internal/gate, the one
+# package that gate searches (base#1850).
+#
 # Every case is reported before the run ends; any failed case, a red
 # rerun call 1 (the control) among them, exits 1. This never calls `just
 # test go` -- that recipe runs this script -- and a nested entry is refused with config_gen_redpath_reentered
@@ -236,9 +243,9 @@ source "${_RP_ROOT}/dist/script/docker/lib/log.sh"
 source "${_RP_SCRIPT_DIR}/config_gen_inputs.sh"
 
 readonly _RP_SERVICE='config-gen'
-readonly -a _RP_GATES=(admission fmt vet lint race coverage)
+readonly -a _RP_GATES=(admission fmt vet lint race coverage fuzz)
 # <case>:<the gate whose id it must produce>, in the order they run.
-readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
+readonly -a _RP_CASES=(fmt:fmt vet:vet lint:lint race:race race-fuzz:race coverage:coverage fmt-parse:fmt corpus-join:race corpus-helper:race corpus-var:race fuzz-panic:fuzz mut-unstaged:mutation mut-staged:mutation mut-timeout:mutation mut-untracked-lived:mutation corpus:mutation notes:mutation sens-per-golden:corpus_sensitivity)
 # Cases that run after the pool drains, one at a time, with no other case
 # running (base#1547). The rule: a case whose expected record holds a
 # timed-out or killed count belongs here, since that count depends on how
@@ -628,6 +635,22 @@ func TestZzRace(t *testing.T) {
 	close(start)
 	wg.Wait()
 	_ = shared
+}
+EOF
+      ;;
+    fuzz-panic)
+      cat >"${mod}/internal/gate/zz_fuzzpanic_test.go" <<'EOF'
+package gate
+
+import "testing"
+
+func FuzzZzPanic(f *testing.F) {
+	f.Add("a")
+	f.Fuzz(func(t *testing.T, s string) {
+		if len(s) >= 4 {
+			panic("zz: four bytes")
+		}
+	})
 }
 EOF
       ;;
@@ -1337,14 +1360,15 @@ _rp_stale() {
   return 1
 }
 
-# The six lines each green and rerun call must print, typed from
-# the issue's gate list (base#1465), not derived from _RP_GATES.
+# The seven lines each green and rerun call must print, typed from
+# the issues' gate lists (base#1465, base#1850), not derived from _RP_GATES.
 readonly _RP_RERUN_OUT='gate=admission ok
 gate=fmt ok
 gate=vet ok
 gate=lint ok
 gate=race ok
-gate=coverage ok'
+gate=coverage ok
+gate=fuzz ok'
 
 # The five lines a coverage case must print: every gate before coverage.
 readonly _RP_PRE_COVERAGE_OUT='gate=admission ok
@@ -1354,7 +1378,7 @@ gate=lint ok
 gate=race ok'
 
 # _rp_rerun_verdict <rc> <out> -- empty when one call passed with exactly
-# the six ok lines, else the reason it did not.
+# the seven ok lines, else the reason it did not.
 _rp_rerun_verdict() {
   local rc="${1}" out="${2}"
   (( rc == 0 )) || { echo rc_not_zero; return 0; }
@@ -1362,7 +1386,7 @@ _rp_rerun_verdict() {
 }
 
 # _rp_rerun <scratch> -- run the runner twice on one unchanged copy;
-# non-zero when either call did not pass with exactly the six ok lines.
+# non-zero when either call did not pass with exactly the seven ok lines.
 _rp_rerun() {
   local root rc call reason
   root="$(_rp_copy "${1}")"
@@ -1374,13 +1398,13 @@ _rp_rerun() {
     [[ -z "${reason}" ]] && continue
     cat "${root}.err" >&2
     _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=rerun" "call=${call}" "reason=${reason}" \
-      "display=config-gen redpath case rerun: call ${call} of 2 did not print exactly the six ok lines: ${reason}"
+      "display=config-gen redpath case rerun: call ${call} of 2 did not print exactly the seven ok lines: ${reason}"
     return 1
   done
 }
 
 # _rp_green_case <scratch> <case> -- run one green case; non-zero when the
-# runner did not pass with exactly the six ok lines, its build log lacks
+# runner did not pass with exactly the seven ok lines, its build log lacks
 # the line _RP_GREEN_LINES holds for <case>, or the packages the mutation
 # gate passed are not exactly the one _RP_GREEN_SCOPE holds for <case>.
 _rp_green_case() {
@@ -1402,12 +1426,12 @@ _rp_green_case() {
   [[ -z "${reason}" ]] && return 0
   cat "${root}.err" >&2
   _log_err "${_RP_SERVICE}" config_gen_redpath_case_failed "case=${2}" "reason=${reason}" \
-    "display=config-gen redpath green case ${2} did not pass with exactly the six ok lines: ${reason}"
+    "display=config-gen redpath green case ${2} did not pass with exactly the seven ok lines: ${reason}"
   return 1
 }
 
 # _rp_after_admit_verdict <rc> <out> <err> <gate> <event> <file> -- empty
-# when <gate> refused the case (exit exactly 1) after exactly the six ok
+# when <gate> refused the case (exit exactly 1) after exactly the seven ok
 # lines, with exactly one <event> record, naming <file>, else the reason
 # it did not.
 _rp_after_admit_verdict() {
@@ -1472,7 +1496,7 @@ _rp_mutation_got() {
 }
 
 # _rp_retro_verdict <rc> <root> <base> -- empty when the retro call passed
-# with the six ok lines, a clean manifest from <base>, nothing unmapped
+# with the seven ok lines, a clean manifest from <base>, nothing unmapped
 # and a passing mutation line for exactly each package, else the reason
 # it did not.
 _rp_retro_verdict() {
@@ -1830,7 +1854,7 @@ main() {
   done
   (( _RP_FAILED == 0 )) || failed=1
   # rerun is the only check on the unmodified copy (base#1547): its
-  # first call is the control, held to rc 0 and exactly the six ok lines.
+  # first call is the control, held to rc 0 and exactly the seven ok lines.
   # A CONFIG_GEN_REDPATH_ONLY run that does not name it still runs it, so
   # a scoped run is held to a passing baseline. A CONFIG_GEN_REDPATH_SHARD
   # run runs it only on the shard its one row names: the baseline is one
