@@ -314,6 +314,412 @@ _pins() {
   assert_success
 }
 
+# why: A bump that moves only the version leaves the checksum ARG naming the old
+# asset, so the build then fails closed; the digest must move in the same run
+# (base#1676). Expected value is the FIPS 180 vector sha256("abc"), not
+# recomputed by the code under test.
+@test "pins: --set regenerates the sha256 ARG named by the marker with the version (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_VERSION=v2.0.0' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: The digest line keeps its quoting and its trailing comment; rebuilding it from
+# the `NAME=` prefix would delete the sentence saying where the digest came from
+# (base#1676). The change is exactly the version line and the digest line.
+@test "pins: --set rewrites only the digest value of the sha256 ARG, keeping quotes and comment (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256="0000000000000000000000000000000000000000000000000000000000000000"  # upstream publishes none'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"  # upstream publishes none' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run git -C "${SCRATCH}" diff --numstat -- dockerfile/Dockerfile.test-tools
+  assert_output --partial "2	2	dockerfile/Dockerfile.test-tools"
+}
+
+# why: When upstream publishes a checksum file, the digest is the line naming our
+# asset, not the first line and not a hash of the file itself (base#1676). The
+# digests are literals written into the fixture, so the expected value is
+# independent of any hashing the code does.
+@test "pins: --set takes the digest of the named asset from an upstream checksum file (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb foo-v2.0.0-linux.tar.gz \
+    cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc foo-v2.0.0-linux.tar.gz.sig \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: A binary-mode checksum line reads `<hash> *<asset>`, a form upstream
+# checksum files use; the named asset's line must still be found in it
+# (base#1676). The digest is a literal written into the fixture.
+@test "pins: --set takes the named asset's digest from a binary-mode '*asset' checksum line (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s *%s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd foo-v2.0.0-linux.tar.gz \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# _curl_stub <rc> -- a curl first on pins.sh's PATH (in ${BATS_TEST_TMPDIR}/
+# curlbin) standing in for the network. It appends its URL, its last
+# argument, to ${BATS_TEST_TMPDIR}/curl.log; with <rc> 0 it serves
+# https://example.invalid/<path> from ${BATS_TEST_TMPDIR}/fx/<path>, with
+# any other <rc> it prints nothing and exits <rc>, as `curl -f` does on an
+# HTTP error. The shipped markers use https URLs, so these are the branches
+# a real bump runs (base#1676).
+_curl_stub() {
+  local _bin="${BATS_TEST_TMPDIR}/curlbin"
+  mkdir -p "${_bin}" "${BATS_TEST_TMPDIR}/fx"
+  printf '#!/bin/sh\nfor a; do u="$a"; done\nprintf "%%s\\n" "$u" >> "%s/curl.log"\n[ "%s" = 0 ] || exit %s\nexec cat -- "%s/fx/${u#https://example.invalid/}"\n' \
+    "${BATS_TEST_TMPDIR}" "${1}" "${1}" "${BATS_TEST_TMPDIR}" > "${_bin}/curl"
+  chmod +x "${_bin}/curl"
+}
+
+# _pins_curl <arg>... -- _pins with the _curl_stub curl first on PATH.
+_pins_curl() {
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${BATS_TEST_TMPDIR}/curlbin:${PATH}" run "${PINS}" "$@"
+}
+
+# why: Both shipped markers name https assets, so the digest a real bump
+# writes comes from `curl | sha256sum`, not from the file:// read the other
+# tests use (base#1676). Expected value is the FIPS 180 vector sha256("abc").
+@test "pins: --set hashes an https asset fetched by curl (base#1676)" {
+  _curl_stub 0
+  printf 'abc' > "${BATS_TEST_TMPDIR}/fx/a-v2.0.0.bin"
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:https://example.invalid/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins_curl --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/a-v2.0.0.bin'
+}
+
+# why: An https checksum file is fetched by curl and the named asset's line
+# is taken from it (base#1676). The digest is a literal in the fixture.
+@test "pins: --set takes the named asset's digest from an https checksum file fetched by curl (base#1676)" {
+  _curl_stub 0
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb foo-v2.0.0-linux.tar.gz \
+    > "${BATS_TEST_TMPDIR}/fx/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:https://example.invalid/SHA256SUMS-{version}:foo-{version}-linux.tar.gz' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins_curl --set foo v2.0.0
+  assert_success
+  run grep -Fx 'ARG FOO_SHA256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/SHA256SUMS-v2.0.0'
+}
+
+# why: A failed fetch must refuse the bump. Without pipefail the pipeline's
+# status is sha256sum's, and the hash of the empty input would be written as
+# the digest (base#1676).
+@test "pins: --set refuses and changes no byte when curl fails on an https asset (base#1676)" {
+  _curl_stub 22
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:https://example.invalid/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins_curl --set foo v2.0.0
+  assert_failure
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+  run cat "${BATS_TEST_TMPDIR}/curl.log"
+  assert_output 'https://example.invalid/a-v2.0.0.bin'
+}
+
+# why: A marker that names a checksum ARG the file does not declare must refuse the
+# bump with nothing written; skipping it would commit "version bumped, digest
+# stale" (base#1676). The fixture URL is absent, so the refusal cannot depend on
+# the fetch.
+@test "pins: --set with a sha256 ARG the file does not declare exits 1 and changes no byte (base#1676)" {
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${BATS_TEST_TMPDIR}/absent-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_OTHER=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: A checksum ARG declared twice leaves no single line to rewrite; writing
+# one would leave the other holding the old digest, so --set must refuse in
+# the lookup phase, before any fetch or write (base#1676). The asset is
+# present, so a fetch would succeed; a `sha256sum` first on pins.sh's PATH
+# (the file:// asset is hashed by it) records whether the fetch ran.
+@test "pins: --set with a sha256 ARG declared twice exits 1 with no fetch and no write (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/spysum"
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\ntouch "%s/fetched"\nexec /usr/bin/sha256sum "$@"\n' \
+    "${_bin}" > "${_bin}/sha256sum"
+  chmod +x "${_bin}/sha256sum"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    'ARG FOO_SHA256=1111111111111111111111111111111111111111111111111111111111111111'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  assert [ ! -e "${_bin}/fetched" ]
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: A checksum file with no line for our asset must refuse the bump with nothing
+# written; today the version moves first and an empty digest follows, a
+# "version bumped, digest broken" commit (base#1676).
+@test "pins: --set exits 1 and changes no byte when the checksum file has no line for the asset (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf '%s  %s\n' \
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa foo-v2.0.0-other.tar.gz \
+    > "${_fx}/SHA256SUMS-v2.0.0"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@file:file://${_fx}/SHA256SUMS-{version}:foo-{version}-linux.tar.gz" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  _pins --set foo v2.0.0
+  assert_failure
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: The version line and each checksum line are separate writes; one that fails
+# after the others landed must put the file back byte for byte, or a "version
+# bumped, one digest stale" tree stays behind (base#1676). The failure is
+# injected by an `mv` first on pins.sh's PATH that fails on its 3rd call (the
+# 2nd checksum line), after the version and the 1st checksum were written.
+@test "pins: --set restores the file byte for byte when a later checksum write fails (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/failmv"
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\nn=$(cat "%s/n" 2>/dev/null || echo 0)\nn=$((n + 1))\necho "$n" > "%s/n"\n[ "$n" -eq 3 ] && exit 1\nexec /bin/mv "$@"\n' \
+    "${_bin}" "${_bin}" > "${_bin}/mv"
+  chmod +x "${_bin}/mv"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256_A@asset:file://${_fx}/a-{version}.bin sha256=FOO_SHA256_B@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256_A=0000000000000000000000000000000000000000000000000000000000000000' \
+    'ARG FOO_SHA256_B=1111111111111111111111111111111111111111111111111111111111111111'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  run cat "${_bin}/n"
+  assert_output 3
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: A checksum write that reports success but leaves another value behind must
+# not pass as a bump; --set reads every checksum ARG back and, on a mismatch,
+# restores the file and exits 1 (base#1676). The write that does not take is
+# injected by an `mv` first on pins.sh's PATH: on its 2nd call (the checksum
+# line) it moves the file as asked, then puts the old digest back.
+@test "pins: --set restores the file and exits 1 when a checksum ARG does not read back (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/stalemv"
+  local _zero=0000000000000000000000000000000000000000000000000000000000000000
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\nn=$(cat "%s/n" 2>/dev/null || echo 0)\nn=$((n + 1))\necho "$n" > "%s/n"\n/bin/mv "$@" || exit 1\n[ "$n" -eq 2 ] && for last; do :; done && [ "$n" -eq 2 ] && sed -i "s/^ARG FOO_SHA256=.*/ARG FOO_SHA256=%s/" "$last"\nexit 0\n' \
+    "${_bin}" "${_bin}" "${_zero}" > "${_bin}/mv"
+  chmod +x "${_bin}/mv"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    "ARG FOO_SHA256=${_zero}"
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'FOO_SHA256'
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: The version is read back after the digests; when it does not take, the file
+# must not keep the new digest beside the old version (base#1676). The write that
+# does not take is injected by an `mv` first on pins.sh's PATH: on its 1st call
+# (the version line) it moves the file as asked, then puts the old version back.
+@test "pins: --set restores the file and exits 1 when the version does not read back after the digests (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx" _bin="${BATS_TEST_TMPDIR}/stalemv"
+  mkdir -p "${_fx}" "${_bin}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  printf '#!/bin/sh\nn=$(cat "%s/n" 2>/dev/null || echo 0)\nn=$((n + 1))\necho "$n" > "%s/n"\n/bin/mv "$@" || exit 1\nfor last; do :; done\n[ "$n" -eq 1 ] && sed -i "s/^ARG FOO_VERSION=.*/ARG FOO_VERSION=v1.0.0/" "$last"\nexit 0\n' \
+    "${_bin}" "${_bin}" > "${_bin}/mv"
+  chmod +x "${_bin}/mv"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  cp "${SCRATCH}/dockerfile/Dockerfile.test-tools" "${BATS_TEST_TMPDIR}/before"
+  git -C "${SCRATCH}" add -A
+  PIN_REPO_ROOT="${SCRATCH}" PATH="${_bin}:${PATH}" run "${PINS}" --set foo v2.0.0
+  assert_failure
+  assert_output --partial 'reads back as v1.0.0'
+  run cmp "${BATS_TEST_TMPDIR}/before" "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_success
+}
+
+# why: The digest resolver is all or nothing: when a later spec cannot be
+# resolved, no digest of an earlier one reaches stdout, so no caller can take a
+# partial list for a whole one (review round 1, base#1676).
+@test "_pins_checksum_digests: a later spec that cannot resolve prints no earlier digest (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  # shellcheck disable=SC1090
+  source "${PINS}"
+  run --separate-stderr _pins_checksum_digests v2.0.0 \
+    "A@asset:file://${_fx}/a-{version}.bin B@asset:file://${_fx}/absent-{version}.bin"
+  assert_failure
+  assert_output ''
+}
+
+# why: A reviewer of a bump proposal must see where each regenerated digest came
+# from; the success output names every sha256 ARG with its source (base#1676).
+@test "pins: --set success output records each checksum ARG with its source (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-v2.0.0.bin"
+  _dockerfile \
+    "# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --set foo v2.0.0
+  assert_success
+  assert_output --partial "FOO_SHA256"
+  assert_output --partial "file://${_fx}/a-v2.0.0.bin"
+}
+
+# why: A sha256= option with no `@<source>` names an ARG but no way to derive its
+# digest; accepting it would leave that ARG stale after a bump, so the read
+# fails and names the pin (base#1676).
+@test "pins: --list fails on a sha256 option that names no source (base#1676)" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000'
+  _pins --list
+  assert_failure
+  assert_output --partial 'foo'
+  assert_output --partial 'sha256'
+}
+
+# why: The checksums column belongs to one marker. A second marker in the same
+# file that declares no sha256= must read `-`, or a bump of it would try to
+# rewrite the first pin's checksum ARG (base#1676).
+@test "pins: --list gives a marker without sha256= no checksums, after one that has them (base#1676)" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA256@asset:file:///fx/a-{version}.bin' \
+    'ARG FOO_VERSION=v1.0.0' \
+    'ARG FOO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    '# tool-pin: bar github-release owner/bar' \
+    'ARG BAR_VERSION=v3.0.0'
+  _pins --list
+  assert_success
+  assert_output --partial $'pinned\tbar\tgithub-release\towner/bar\t-\t-\tv3.0.0\tdockerfile/Dockerfile.test-tools\t5\t-'
+}
+
+# why: The shellcheck checksum ARGs are the first real pins that must move with
+# their version; a marker that does not declare them leaves a bump half done
+# (base#1676). Read from the shipped Dockerfile, not a fixture.
+@test "pins: the shipped shellcheck marker declares both checksum ARGs, each declared once (base#1676)" {
+  cp /source/dockerfile/Dockerfile.test-tools \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --list
+  assert_success
+  local _line
+  _line="$(grep -P '^pinned\tshellcheck\t' <<< "${output}")"
+  [[ "${_line}" == *'SHELLCHECK_SHA256_AMD64@'* ]]
+  [[ "${_line}" == *'SHELLCHECK_SHA256_ARM64@'* ]]
+  run grep -cE '^ARG SHELLCHECK_SHA256_AMD64=' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output 1
+  run grep -cE '^ARG SHELLCHECK_SHA256_ARM64=' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  assert_output 1
+}
+
+# why: A checksum ARG no marker names is left stale by every bump of its tool,
+# which is how the hadolint digests (base#1672) stayed behind (review round 1,
+# base#1676). Every *_SHA256_* ARG of the shipped test-tools Dockerfile must be
+# named by a sha256= option in the --list checksum column; the ARGs are read
+# from the file, not listed here, so a new one is covered without editing this.
+@test "pins: every checksum ARG of the shipped test-tools Dockerfile is named by a sha256= option (base#1676)" {
+  cp /source/dockerfile/Dockerfile.test-tools \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools"
+  _pins --list
+  assert_success
+  local _list="${output}" _arg _n=0
+  while read -r _arg; do
+    _n=$((_n + 1))
+    grep -qE "(^|[[:space:]])${_arg}@" <<< "$(cut -f10 <<< "${_list}")" \
+      || fail "${_arg} is named by no sha256= option"
+  done < <(sed -nE 's/^[[:space:]]*ARG[[:space:]]+([A-Za-z0-9_]*SHA256[A-Za-z0-9_]*)=.*/\1/p' \
+    "${SCRATCH}/dockerfile/Dockerfile.test-tools")
+  (( _n > 0 )) || fail "no checksum ARG read from the shipped Dockerfile"
+}
+
 # why: An image tag is the other target shape a bump must rewrite, and it lives on
 # its own line inside a nested YAML block
 @test "pins: --set rewrites an image tag in place, on its own line" {
@@ -1422,6 +1828,30 @@ printf "golang.org/x/mod v0.21.0 h1:new=\n"'
     'ARG GO_IMAGE=golang:1.27.3-trixie'
 }
 
+# why: A golang bump rewrites go.mod and go.sum files beside the Dockerfile,
+# and the checksum backup covers the Dockerfile alone, so a digest failure
+# after a cross-minor bump would leave the go.mod files moved. --set refuses
+# sha256= on the golang pin before any fetch or write (base#1676). The
+# fixture asset exists, so the refusal cannot be a fetch failure.
+@test "pins: --set refuses sha256= on the golang pin and changes no byte (base#1676)" {
+  local _fx="${BATS_TEST_TMPDIR}/fx"
+  mkdir -p "${_fx}"
+  printf 'abc' > "${_fx}/a-golang:1.27.3-trixie.bin"
+  printf '%s\n' \
+    "# tool-pin: golang dockerhub library/golang pattern=^1\\.[0-9]+\\.[0-9]+-trixie\$ sha256=GO_SHA256@asset:file://${_fx}/a-{version}.bin" \
+    'ARG GO_IMAGE=golang:1.27.2-trixie' \
+    'ARG GO_SHA256=0000000000000000000000000000000000000000000000000000000000000000' \
+    > "${SCRATCH}/dockerfile/Dockerfile.config-gen"
+  _docker_stub 'exit 99'
+  _tree_snap
+  _pins_json --set golang golang:1.27.3-trixie
+  assert_failure
+  [[ "${stderr}" == *'sha256= options are applied to a single-file pin only'* ]] \
+    || fail "stderr: ${stderr}"
+  _assert_bytes "${BATS_TEST_TMPDIR}/docker/images.log"
+  _assert_tree_delta
+}
+
 # _minor_modules -- two tracked modules beside the golang pin, each with a
 # go.sum: ${SCRATCH}/m requires golang.org/x/mod, ${SCRATCH}/m2
 # golang.org/x/text, both at `go 1.27`.
@@ -1776,4 +2206,27 @@ STUB
     /source/.github/workflows/self-test.yaml
   assert_success
   assert_output 'pinned'
+}
+
+# why: the --list usage text and the pins.sh header were left describing nine
+# columns and a version-only bump after the tenth (checksums) column and the
+# sha256= option landed (base#1676); the usage must name the checksums column
+# and every doc that owns the grammar must mention the option
+@test "pins: the usage names the checksums column and the docs cover sha256=" {
+  _dockerfile \
+    '# tool-pin: foo github-release owner/foo sha256=FOO_SHA@asset:file:///x/{version}' \
+    'ARG FOO_VERSION=1.2.3' \
+    'ARG FOO_SHA=abc'
+  _pins --list
+  assert_success
+  [[ "$(printf '%s\n' "${output}" | head -n1 | awk -F'\t' '{print NF}')" == 10 ]]
+  run "${PINS}"
+  assert_failure 2
+  assert_output --partial 'line checksums'
+  local _root="${BATS_TEST_DIRNAME}/../../.."
+  local _f
+  for _f in script/watch/pins.sh script/watch/lib.sh doc/guide/dockerfile-stages.md; do
+    run grep -F 'sha256=<ARG>@<source>' "${_root}/${_f}"
+    assert_success
+  done
 }
