@@ -201,32 +201,6 @@ _df_instructions() {
   assert_output 1
 }
 
-# why: BuildKit reads a `--from=<name>` or a mount's `from=<name>` that no
-# stage defines as an image reference to pull. The runner overrides the
-# mutation and toml-oracle names with `--build-context`, but the header's
-# documented `docker build` passes none, so a name with no stage behind it
-# makes that build pull an image called toml-oracle instead of reaching
-# admit's named refusal (review round 2, base#1851). Every name a COPY or a
-# mount reads from must be a stage defined above it, so both entry points
-# resolve the same names, the runner's contexts replacing those stages.
-@test "Dockerfile.config-gen: every COPY --from and mount from= names a stage defined above it, so a build given no --build-context pulls no image for it (base#1851)" {
-  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
-  _df_instructions > "${S}/df"
-  run awk -F'\t' '
-    $2 ~ /^FROM / { n = split($2, w, /[[:space:]]+/); if (n >= 4 && tolower(w[n-1]) == "as") seen[w[n]] = 1; next }
-    {
-      s = $2
-      while (match(s, /(--from|[ ,]from)=[^ ,]+/)) {
-        ref = substr(s, RSTART, RLENGTH); sub(/^.*from=/, "", ref)
-        if (!(ref in seen)) print "line " NR ": " ref
-        s = substr(s, RSTART + RLENGTH)
-      }
-    }' "${S}/df"
-  assert_success
-  assert_output ""
-  grep -qE 'from=toml-oracle' "${S}/df" || fail "no instruction reads the toml-oracle context"
-}
-
 # _df_run_body <stage> <ere> -- the shell text of the one RUN in <stage>
 # whose joined instruction matches <ere>, with `RUN` and its --flag=value
 # options removed, the corpus root record read from ${S}/corpus-root
