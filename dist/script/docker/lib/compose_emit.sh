@@ -99,6 +99,7 @@ _warn_ports_inert() {
 _SHM_SIZE_INERT_WARNED=0
 _NETWORK_NAME_INERT_WARNED=0
 _LIFECYCLE_RESTART_INVALID_WARNED=0
+_LIFECYCLE_INIT_INVALID_WARNED=0
 
 # _warn_shm_size_inert <shm_size> <ipc_mode>
 #
@@ -154,9 +155,11 @@ _warn_invalid_lifecycle_restart() {
 # _warn_invalid_lifecycle_init <value>
 #
 # Same message shape as _warn_invalid_lifecycle_restart, for [lifecycle] init
-# (base#1651). Unlike the restart one this is not latched.
+# (base#1651). Latched once per emit like the restart one (base#1660).
 _warn_invalid_lifecycle_init() {
   local _value="${1-}"
+  (( _LIFECYCLE_INIT_INVALID_WARNED )) && return 0
+  _LIFECYCLE_INIT_INVALID_WARNED=1
   _log_warn setup lifecycle_init_invalid \
     "display=$(_setup_msg lifecycle init_invalid) (init=${_value})" "init=${_value}"
 }
@@ -185,6 +188,7 @@ _reset_inert_warnings() {
   _SHM_SIZE_INERT_WARNED=0
   _NETWORK_NAME_INERT_WARNED=0
   _LIFECYCLE_RESTART_INVALID_WARNED=0
+  _LIFECYCLE_INIT_INVALID_WARNED=0
   _NETWORK_NAME_JOINED=0
 }
 
@@ -346,6 +350,16 @@ _classify_volume_lhs() {
 #
 # Unsafe in block context: empty; a `: ` or a tab or a ` #` anywhere; a
 # leading YAML indicator; a leading or trailing space; a trailing colon.
+#
+# A valid plain scalar can still be read as something other than a
+# string (base#1651): `~` / `null` resolve to null, `true` / `yes` / `on`
+# to a bool, `0755` / `1e3` / `.inf` / `1:30` to a number, `2001-12-14`
+# to a date, and compose-go refuses a list whose item is not a string.
+# So the null, bool, value (`=`) and merge (`<<`) words of YAML 1.1 and
+# the 1.2 core schema are quoted, and so is every value shaped like a
+# number or timestamp: an optional sign, an optional `.`, then a digit.
+# That is a superset on purpose -- quoting a value that would have read
+# as a string anyway changes nothing, and missing one is the bug.
 _compose_yaml_scalar() {
   local _v="${1-}"
   local _needs=0
@@ -354,7 +368,13 @@ _compose_yaml_scalar() {
     *": "*|*" #"*|*$'\t'*)   _needs=1 ;;
     [-?:,\[\]{}#\&\*\!\|\>\'\"%@\`]*) _needs=1 ;;
     " "*|*" "|*:)            _needs=1 ;;
+    "~"|[Nn]ull|NULL|[Tt]rue|TRUE|[Ff]alse|FALSE) _needs=1 ;;
+    [Yy]|[Yy]es|YES|[Nn]|[Nn]o|NO|[Oo]n|ON|[Oo]ff|OFF|"="|"<<") _needs=1 ;;
   esac
+  if [[ "${_v}" =~ ^[-+]?\.?[0-9][0-9A-Za-z_.:+\ -]*$ ]] \
+    || [[ "${_v}" =~ ^[-+]?\.(inf|Inf|INF|nan|NaN|NAN)$ ]]; then
+    _needs=1
+  fi
   if (( ! _needs )); then
     printf '%s' "${_v}"
     return 0
@@ -742,21 +762,21 @@ _emit_caps_block() {
     echo "    cap_add:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_cap_add}"
   fi
   if [[ -n "${_cap_drop}" ]]; then
     echo "    cap_drop:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_cap_drop}"
   fi
   if [[ -n "${_sec_opt}" ]]; then
     echo "    security_opt:"
     while IFS= read -r _c; do
       [[ -z "${_c}" ]] && continue
-      echo "      - ${_c}"
+      echo "      - $(_compose_yaml_scalar "${_c}")"
     done <<< "${_sec_opt}"
   fi
 }
@@ -810,7 +830,7 @@ _emit_tmpfs_block() {
   local _tf
   while IFS= read -r _tf; do
     [[ -z "${_tf}" ]] && continue
-    echo "      - ${_tf}"
+    echo "      - $(_compose_yaml_scalar "${_tf}")"
   done <<< "${_tmpfs_str}"
 }
 

@@ -16,6 +16,20 @@
 # through the driver's shard entry over a fixture tree, so it catches the
 # defect however a future test builds its value, rather than scanning spec
 # text for one way of building it. It replaces kcov_trace_volume_spec.bats.
+#
+# Record (base#1424): the removed kcov_trace_volume_spec.bats and the commits
+# that added it (1a642270, df58906e, base#1408) say CI run 40470315196
+# (coverage 7/12) "stopped about 64 KiB into" a 1 MiB line. That figure is
+# not supported by the hosted job. In the log of job 122075689824 the longest
+# line is 917,544 characters, and the last two are 610,344 and 688,157, none
+# near 65,536; whether the last one was cut short by the cancellation the log
+# cannot say. The figure does match the local reproduction written up in the
+# same commit (a stdout reader that stops on lines over 64 KiB, so every
+# process blocks in pipe_write), and 65,536 is the pipe size the old scanner
+# used as its threshold. No earlier source for "64 KiB" is in the repo,
+# base#1400, base#1408, base#1414 or base#1426. So it is a local figure, and
+# the hosted hang is established only by its timeout and the log gaps
+# (base#1414).
 
 bats_require_minimum_version 1.5.0
 
