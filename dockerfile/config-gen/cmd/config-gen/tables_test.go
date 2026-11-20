@@ -83,21 +83,16 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 // whose golden/s1/EXPECT class is `parity`; a fixture of any other class
 // has no golden to print, and one with no row fails (base#1936).
 func TestTablesPrintsTheBridgeGolden(t *testing.T) {
-	expect := testcorpus.Glob(t, "golden/s1/EXPECT")
-	rows, err := os.ReadFile(expect[0])
-	if err != nil {
-		t.Fatalf("read %s: %v", expect[0], err)
-	}
+	expect, rows := expectRows(t)
 	class := map[string]string{}
-	for _, row := range strings.Split(strings.TrimSuffix(string(rows), "\n"), "\n") {
-		name, c, _ := strings.Cut(row, "\t")
-		class[name] = c
+	for _, row := range rows {
+		class[row.name] = row.class
 	}
 	for _, src := range testcorpus.Glob(t, "corpus/s1/*.toml") {
 		name := strings.TrimSuffix(filepath.Base(src), ".toml")
 		c, ok := class[name]
 		if !ok {
-			t.Fatalf("corpus/s1/%s.toml has no row in %s", name, expect[0])
+			t.Fatalf("corpus/s1/%s.toml has no row in %s", name, expect)
 		}
 		if c != "parity" {
 			continue
@@ -152,15 +147,11 @@ func TestTablesParityRefusedFixtureIsOneGateFrame(t *testing.T) {
 		"toml11_inline_trailing_comma": {"4", "27"},
 		"toml11_time_no_seconds":       {"4", "6"},
 	}
-	expect := testcorpus.Glob(t, "golden/s1/EXPECT")
-	rows, err := os.ReadFile(expect[0])
-	if err != nil {
-		t.Fatalf("read %s: %v", expect[0], err)
-	}
+	expect, rows := expectRows(t)
 	seen := 0
-	for _, row := range strings.Split(strings.TrimSuffix(string(rows), "\n"), "\n") {
-		name, c, _ := strings.Cut(row, "\t")
-		if c != "parity-refused" {
+	for _, row := range rows {
+		name := row.name
+		if row.class != "parity-refused" {
 			continue
 		}
 		seen++
@@ -185,8 +176,28 @@ func TestTablesParityRefusedFixtureIsOneGateFrame(t *testing.T) {
 		})
 	}
 	if seen != len(want) {
-		t.Fatalf("%s holds %d parity-refused rows, want %d", expect[0], seen, len(want))
+		t.Fatalf("%s holds %d parity-refused rows, want %d", expect, seen, len(want))
 	}
+}
+
+// expectRow is one golden/s1/EXPECT line: a corpus/s1 stem and its class.
+type expectRow struct{ name, class string }
+
+// expectRows returns the path of golden/s1/EXPECT and its rows in file
+// order, each split at its first tab (base#1936).
+func expectRows(t *testing.T) (string, []expectRow) {
+	t.Helper()
+	expect := testcorpus.Glob(t, "golden/s1/EXPECT")[0]
+	body, err := os.ReadFile(expect)
+	if err != nil {
+		t.Fatalf("read %s: %v", expect, err)
+	}
+	var rows []expectRow
+	for _, line := range strings.Split(strings.TrimSuffix(string(body), "\n"), "\n") {
+		name, class, _ := strings.Cut(line, "\t")
+		rows = append(rows, expectRow{name, class})
+	}
+	return expect, rows
 }
 
 // refusal parses stderr fully as frames (the package helper in
