@@ -338,6 +338,7 @@ ci_toml_fixture
 ci_canonical_ignore_sync
 ci_home_literal
 ci_arch_literal
+ci_moving_tag
 ci_bash_source_guard
 ci_early_close_reader
 ci_errexit_bang
@@ -431,6 +432,9 @@ config_gen_gate_vet_failed
 config_gen_gate_lint_failed
 config_gen_gate_race_failed
 config_gen_gate_coverage_failed
+# The sixth gate, fuzz (base#1850): a Fuzz target's 60 s search found a
+# failing input.
+config_gen_gate_fuzz_failed
 config_gen_build_failed
 config_gen_step_failed
 config_gen_step_reused
@@ -580,3 +584,28 @@ config_gen_mutation_ignored_input
 config_gen_mutation_unmapped
 config_gen_mutation_manifest_invalid
 config_gen_mutation_no_such_package
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
+# binary's table list held a NUL byte, which a shell variable cannot carry.
+config_gen_output_nul
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
+# named file's mount src (the name, or its parent's physical path) holds
+# a comma or newline, which a docker --mount value cannot carry.
+config_gen_path_unmountable
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
+# the docker run exited non-zero (status=) and its stderr held no
+# diagnostic frame; any unframed stderr is forwarded as
+# config_gen_stray_stderr.
+config_gen_run_failed
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470): the
+# binary's diagnostic stream held a frame that is not an 8-field D frame
+# with a registered event id (reason=tag|unregistered|truncated|count).
+config_gen_diag_malformed
+
+# dist/script/docker/lib/config_gen.sh config_gen_tables (base#1470):
+# unframed text on the run's stderr (text=), outside any diagnostic frame,
+# forwarded once beside any frame's own event.
+config_gen_stray_stderr

@@ -56,6 +56,7 @@ JUSTFILE_TEST="/source/script/test/justfile.test"
 ALLOWED_EXCLUSIONS="acceptance/arm64
 classify
 compute-shards
+single-issue-pr
 test-tools-image-amd64
 test-tools-image-arm64
 worker-selftest"
