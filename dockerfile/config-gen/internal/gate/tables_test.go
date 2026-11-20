@@ -6,9 +6,11 @@ import (
 )
 
 // definedTwice are documents that define a key path a second time, which
-// tomllib refuses (base#1851). This slice holds only the verdict: Check
-// refuses each with errDefinedTwice, and the refusal's text and position
-// are base#1852's to set, so no row pins them. The first rows put a plain
+// tomllib refuses (base#1851). This slice holds only the verdict. Check
+// refuses each with a *Refusal, as it refuses everything (FuzzCheck,
+// base#1850), and the Refusal's reason is ReasonDefinedTwice, so a
+// refusal by another rule does not pass. Its text, line and column are
+// base#1852's to set, so no row pins them. The first rows put a plain
 // duplicate after each token form the table pass must read past (a CRLF
 // line ending, comments, the four string forms with quotes and line
 // endings inside, a datetime with a space delimiter, nested arrays, quoted
@@ -52,12 +54,18 @@ var definedTwice = []struct {
 	{"inline-in-array", "a = [{b = 1, b = 2}]\n"},
 }
 
-// Check refuses every definedTwice row with errDefinedTwice, not with
-// another rule's refusal.
+// Check refuses every definedTwice row with a *Refusal for label whose
+// reason is ReasonDefinedTwice.
 func TestCheckRefusesKeyPathDefinedTwice(t *testing.T) {
 	for _, tc := range definedTwice {
-		if err := Check("t.toml", []byte(tc.src)); !errors.Is(err, errDefinedTwice) {
-			t.Errorf("%s: Check(%q) = %v, want errDefinedTwice", tc.name, tc.src, err)
+		var r *Refusal
+		if err := Check("t.toml", []byte(tc.src)); !errors.As(err, &r) {
+			t.Errorf("%s: Check(%q) = %v, want *Refusal", tc.name, tc.src, err)
+			continue
+		}
+		if r.File != "t.toml" || r.Reason != ReasonDefinedTwice {
+			t.Errorf("%s: Check(%q) Refusal = {%q %v}, want {\"t.toml\" ReasonDefinedTwice}",
+				tc.name, tc.src, r.File, r.Reason)
 		}
 	}
 }
