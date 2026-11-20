@@ -5068,7 +5068,7 @@ directory is a no-op).
 | `_logrotate_prune: never prunes a SIBLING service's symlink sharing the dir (#805)` | - |
 | `_logrotate_prune: missing dir is a no-op (best-effort) (#805)` | - |
 
-### test/bats/unit/merged_pr_comment_yaml_spec.bats (10)
+### test/bats/unit/merged_pr_comment_yaml_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -5076,6 +5076,7 @@ directory is a no-op).
 | `merged-pr-comment: the job runs only for a merged same-repo pull request` | Only a MERGED pull request from this repository may reach the job. A job without the merged condition comments on a PR closed unmerged; one that lets a fork through runs with a read-only token and fails (base#2012) |
 | `merged-pr-comment: permissions are contents read and pull-requests write only` | The token is granted exactly what the read and the comment need. A wider grant (write-all, a job-level override) would give a bot comment step more power than the notification needs (base#2012) |
 | `merged-pr-comment: the step env binds the repository, PR number and merge sha` | The step reads the PR number, the repository and the merge sha from env. If a binding points at another event field the comment lands on or names the wrong thing (base#2012) |
+| `merged-pr-comment: the workflow declares a per-PR concurrency group that never cancels` | Two merges close close together would run two jobs for different PRs at once, and a queued run must not be cancelled, so the group is per PR and never cancels (base#2012, #1014) |
 | `merged-pr-comment: the comment names the merge sha and the closing issues` | The comment is the owner's notification, so it must say WHICH merge and WHICH issues it closed. A closing issue of this repo reads `#7`; one of another repo must keep its owner/repo, or `#9` would point at the wrong tracker. The fixture carries a sha and refs no default could produce (base#2012) |
 | `merged-pr-comment: a PR that closes no issue says so` | A merge that closes no issue still has to notify the owner, and a valid empty answer must not read as "Closes: ." (base#2012) |
 | `merged-pr-comment: an empty merge sha fails and posts nothing` | A merge event always carries merge_commit_sha. An empty one means the event is not what the workflow expects, and "Merged as ." would tell the owner nothing, so the step fails and posts nothing (base#2012) |
