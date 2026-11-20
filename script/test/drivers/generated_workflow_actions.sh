@@ -458,7 +458,7 @@ _gwa_load_registry() {
   _GWA_PIN_VALUE=()
   _GWA_PIN_AMBIGUOUS=()
   local _table _decl _var _key
-  local _state _name _resolver _coord _pattern _skip _current _file _line
+  local _state _name _resolver _coord _pattern _skip _current _file _line _cksum
   # Command substitution, not a process substitution feeding the loop: a
   # `< <(...)` redirection discards the producer's exit status, and a
   # registry that could not be read would then look like a registry that
@@ -466,7 +466,7 @@ _gwa_load_registry() {
   # finding, in a sentence about the wrong defect.
   _table="$(_pin_read "${REPO_ROOT}")" || return 1
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
-      _current _file _line; do
+      _current _file _line _cksum; do
     [[ -z "${_state}" ]] && continue
     [[ -z "${_current}" || "${_current}" == '-' ]] && continue
     _decl="$(awk -v n="${_line}" 'NR == n' "${REPO_ROOT}/${_file}")" || continue

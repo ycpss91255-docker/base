@@ -175,7 +175,7 @@ _WATCH_FLOATING=()
 # pin TABLE could not be read at all, which is a different failure from an
 # upstream that did not answer and must stay distinguishable from it.
 _watch_scan() {
-  local _state _name _resolver _coord _pattern _skip _current _file _line
+  local _state _name _resolver _coord _pattern _skip _current _file _line _cksum
   local _latest _table
 
   # Command substitution, NOT `done < <(_pin_read ...)`. A process
@@ -194,7 +194,7 @@ _watch_scan() {
   _pin_go_directive_check "${PIN_REPO_ROOT}" || return 1
 
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
-      _current _file _line; do
+      _current _file _line _cksum; do
     # A table with no records still yields one empty line through a
     # here-string.
     [[ -z "${_state}" ]] && continue

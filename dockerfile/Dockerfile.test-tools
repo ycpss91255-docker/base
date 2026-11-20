@@ -101,7 +101,11 @@ ARG KCOV_COMMIT=a39874f938ce13f7a65f253120d1ec946b349ffe
 # test-tools tag from the sha256 of this Dockerfile alone -- a version
 # declared elsewhere would be invisible to that digest, so a bump would
 # leave the tag unchanged and silently reuse the previous image.
-# tool-pin: just github-release casey/just
+# arch-literal-lint: allow-begin -- the checksum sources name the upstream
+# asset per arch, and just publishes x86_64 / aarch64 where TARGETARCH says
+# amd64 / arm64.
+# tool-pin: just github-release casey/just sha256=JUST_SHA256_AMD64@file:https://github.com/casey/just/releases/download/{version}/SHA256SUMS:just-{version}-x86_64-unknown-linux-musl.tar.gz sha256=JUST_SHA256_ARM64@file:https://github.com/casey/just/releases/download/{version}/SHA256SUMS:just-{version}-aarch64-unknown-linux-musl.tar.gz
+# arch-literal-lint: allow-end
 ARG JUST_VERSION=1.58.0
 # sha256 of the just release asset per arch (musl). Source: upstream's published
 # SHA256SUMS, https://github.com/casey/just/releases/download/1.58.0/SHA256SUMS
@@ -197,19 +201,19 @@ FROM alpine-apk AS lint-tools
 # (visible symptom: `shellcheck: Exec format error` on arm64 downstream
 # CI). If invoked outside BuildKit, pass `--build-arg TARGETARCH=<arch>`.
 ARG TARGETARCH
-# tool-pin: shellcheck github-release koalaman/shellcheck
+# tool-pin: shellcheck github-release koalaman/shellcheck sha256=SHELLCHECK_SHA256_AMD64@asset:https://github.com/koalaman/shellcheck/releases/download/{version}/shellcheck-{version}.linux.x86_64.tar.xz sha256=SHELLCHECK_SHA256_ARM64@asset:https://github.com/koalaman/shellcheck/releases/download/{version}/shellcheck-{version}.linux.aarch64.tar.xz
 ARG SHELLCHECK_VERSION=v0.11.0
 # sha256 of the v0.11.0 release asset per arch. Upstream publishes no checksum
 # file, so these are self-computed from the asset (base#1648). A version bump
 # must update both, otherwise the build fails closed.
 ARG SHELLCHECK_SHA256_AMD64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
 ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
-# tool-pin: hadolint github-release hadolint/hadolint
+# tool-pin: hadolint github-release hadolint/hadolint sha256=HADOLINT_SHA256_AMD64@asset:https://github.com/hadolint/hadolint/releases/download/{version}/hadolint-linux-x86_64 sha256=HADOLINT_SHA256_ARM64@asset:https://github.com/hadolint/hadolint/releases/download/{version}/hadolint-linux-arm64
 ARG HADOLINT_VERSION=v2.15.1
 # sha256 of the v2.15.1 raw binary per arch: the asset `digest` field from
 # `gh release view v2.15.1 -R hadolint/hadolint` (upstream publishes no
-# .sha256 file; curl returned 404), base#1672. A version bump must update
-# both, otherwise the build fails closed.
+# .sha256 file; curl returned 404), base#1672. `pins.sh --set hadolint`
+# regenerates both from the release assets the marker names (base#1676).
 ARG HADOLINT_SHA256_AMD64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
 COPY dockerfile/verify-extract.sh /usr/local/bin/verify-extract

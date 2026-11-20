@@ -393,6 +393,8 @@ _driver_prelude() {
     _run_coverage() { printf "SERIAL_RUNNER %s\n" "${1:-}"; }
     _run_coverage_parallel() { printf "PARALLEL_RUNNER %s\n" "$1"; }
     _fix_permissions() { :; }
+    # Routing is under test, not the bare-run prerequisites (base#1423).
+    _check_suite_prerequisites() { :; }
     COVERAGE=1 COVERAGE_LOCAL_JOBS=4 COVERAGE_PATH= COVERAGE_SHARD= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
       BATS_FILE= BATS_FILTER= LINT_ONLY=0 LINT_TOOL= LINT_GROUP= PER_TEST_TIMEOUT= \
