@@ -91,3 +91,17 @@ JSON
     'Merged as deadbeefdeadbeefdeadbeefdeadbeefdeadbeef.' \
     'Closes: #7, other/repo#9.')" ]
 }
+
+# why: A merge that closes no issue still has to notify the owner, and a
+# valid empty answer must not read as "Closes: ." (base#2012)
+@test "merged-pr-comment: a PR that closes no issue says so" {
+  _stub_gh
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+    >"${GQL_FIXTURE}"
+  _run_step
+  assert_success
+  [ "$(cat "${POSTED}")" = "$(printf '%s\n%s\n%s' \
+    '<!-- merged-pr-comment -->' \
+    'Merged as deadbeefdeadbeefdeadbeefdeadbeefdeadbeef.' \
+    'This PR closes no issue.')" ]
+}
