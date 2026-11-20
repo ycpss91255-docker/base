@@ -274,6 +274,38 @@ func TestTablesEmptyNameValueIsOneParseFailedFrameAtLineZero(t *testing.T) {
 	}
 }
 
+// A TOML 1.1-only form the bridge refuses -- here the `\e` escape in a
+// basic string -- makes `config-gen tables` exit 1 with nothing on stdout
+// and exactly one `config_gen_toml_gate_refused` frame, raised by
+// internal/gate before decode (base#1936): `file` is the `--name` label
+// verbatim, `key` is empty, and `line` and `col` are the 1-based line and
+// byte column of the backslash. The position is counted by hand: line 2
+// is `msg = "a\e[0m"`, and `m s g ' ' = ' ' " a` are 8 bytes, so `\` is
+// byte 9. The text is the gate's own sentence for the form, not
+// Refusal.Error(), which would repeat the label.
+func TestTablesTOML11FormIsOneGateFrame(t *testing.T) {
+	const label = "lab\tel\r\n\"q\"\\é.toml"
+	path := filepath.Join(t.TempDir(), "f.toml")
+	if err := os.WriteFile(path, []byte("[log]\nmsg = \"a\\e[0m\"\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+	if rc != 1 {
+		t.Fatalf("config-gen tables exited %d, want 1 (stdout %q, stderr %q)", rc, stdout, stderr)
+	}
+	if len(stdout) != 0 {
+		t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+	}
+	f := refusal(t, stderr, "config_gen_toml_gate_refused", label)
+	if f[4] != "2" || f[5] != "9" {
+		t.Fatalf("frame line, col = %q, %q, want 2, 9", f[4], f[5])
+	}
+	const text = `escape sequence \e is not TOML 1.0`
+	if f[7] != text {
+		t.Fatalf("frame text = %q, want %q", f[7], text)
+	}
+}
+
 // An input that is not a regular file -- a directory, a FIFO with no
 // writer, the character device /dev/null, or a listening unix socket --
 // makes `config-gen tables` exit 1 with nothing on stdout and exactly one
