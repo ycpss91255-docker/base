@@ -28,6 +28,10 @@ jobs:
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           set -euo pipefail
+          if [ -z "${MERGE_SHA}" ]; then
+            echo 'merge_commit_sha is empty; not a merge event' >&2
+            exit 1
+          fi
           owner="${REPO%%/*}"
           name="${REPO#*/}"
           # $owner/$name/$number are GraphQL variables, not shell
