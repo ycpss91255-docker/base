@@ -23,6 +23,8 @@ setup() {
   CONF="${TEMP_DIR}/setup.toml"
   LIB=/source/dist/script/docker/lib
   SETUP_SH=/source/dist/script/docker/wrapper/setup.sh
+  create_mock_dir
+  mock_config_gen_docker
 }
 
 teardown() {

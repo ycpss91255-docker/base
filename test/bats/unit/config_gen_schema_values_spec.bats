@@ -27,6 +27,8 @@ setup() {
   # shellcheck disable=SC1091
   source "${LIB}/setup_cmd.sh"
   load "${BATS_TEST_DIRNAME}/config_gen_layer_helper"
+  create_mock_dir
+  mock_config_gen_docker
 }
 
 teardown() {

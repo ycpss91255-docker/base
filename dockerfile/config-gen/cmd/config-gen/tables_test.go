@@ -873,3 +873,54 @@ func TestTablesSizeLimitedStdoutIsExit4AndAGoldenPrefix(t *testing.T) {
 		t.Fatalf("stdout file took %d bytes, want a non-empty strict prefix of the %d-byte golden", len(got), len(want))
 	}
 }
+
+// withStdin runs f with os.Stdin replaced by r (base#1937).
+func withStdin(t *testing.T, r *os.File, f func()) {
+	t.Helper()
+	saved := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = saved }()
+	f()
+}
+
+// TestTablesReadsStdinForDash pins the stdin form of the path: `-` reads
+// the file from stdin, which is how config_gen_tables hands over a layer
+// whose path only the caller can see (base#1937).
+func TestTablesReadsStdinForDash(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = pw.WriteString("[a]\n[b.c]\n")
+		_ = pw.Close()
+	}()
+	var stdout, stderr bytes.Buffer
+	var rc int
+	withStdin(t, pr, func() {
+		rc = runTables([]string{"--name", "layer.toml", "-"}, &stdout, &stderr, syscall.Open)
+	})
+	_ = pr.Close()
+	if rc != exitOK || stdout.String() != "a\nb\nb.c\n" || stderr.Len() != 0 {
+		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, stdout.String(), stderr.String())
+	}
+}
+
+// TestTablesRefusesUnreadableStdin pins that a stdin that cannot be read
+// is the one config_gen_input_unreadable frame, exit 1 (base#1937).
+func TestTablesRefusesUnreadableStdin(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = pw.Close()
+	_ = pr.Close()
+	var stdout, stderr bytes.Buffer
+	var rc int
+	withStdin(t, pr, func() {
+		rc = runTables([]string{"--name", "layer.toml", "-"}, &stdout, &stderr, syscall.Open)
+	})
+	if rc != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "config_gen_input_unreadable") {
+		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, stdout.String(), stderr.String())
+	}
+}

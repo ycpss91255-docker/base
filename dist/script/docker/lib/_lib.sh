@@ -51,6 +51,8 @@ source "${_lib_dir}/env_emit.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/config_summary.sh"
 # shellcheck disable=SC1091
+source "${_lib_dir}/config_gen.sh"
+# shellcheck disable=SC1091
 source "${_lib_dir}/setup_cmd.sh"
 # shellcheck disable=SC1091
 source "${_lib_dir}/setup_detect.sh"

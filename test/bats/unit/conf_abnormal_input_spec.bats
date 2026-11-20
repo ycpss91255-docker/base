@@ -23,6 +23,8 @@ setup() {
   CONF="${REPO}/setup.toml"
   LIB=/source/dist/script/docker/lib
   SETUP_SH=/source/dist/script/docker/wrapper/setup.sh
+  create_mock_dir
+  mock_config_gen_docker
 }
 
 teardown() {
@@ -213,6 +215,9 @@ EOF
   chmod 000 "${CONF}"
   chmod 777 "${REPO}"
   chmod 755 "${TEMP_DIR}"
+  # The template layer is checked first, through the docker shim, so the
+  # shim's directory must be reachable by nobody (base#1937).
+  chmod 755 "${MOCK_DIR}"
   local _cmd="export LOG_FORMAT=json; source '${SETUP_SH}'; main apply --base-path '${REPO}'"
   if (( EUID == 0 )); then
     command -v su > /dev/null \

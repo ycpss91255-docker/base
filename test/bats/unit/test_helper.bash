@@ -27,6 +27,24 @@ mock_cmd() {
     chmod +x "${MOCK_DIR}/${_cmd}"
 }
 
+# mock_config_gen_docker
+#   The test container has no docker daemon, so config_gen_tables (which
+#   _setup_conf_check_known calls, base#1937) cannot run the config-gen
+#   image. This shim answers `image inspect` as present and serves a
+#   `run ... tables` from the in-container bridge's --tables view of the
+#   file on its stdin (docker run -i); CONFIG_GEN_IMAGE names an image so
+#   nothing is resolved or built. Needs create_mock_dir first. A spec that needs docker to behave
+#   otherwise replaces it with its own mock_cmd docker.
+mock_config_gen_docker() {
+  mock_cmd docker 'case "$1" in
+  image) exit 0 ;;
+  run)
+    exec /usr/local/bin/toml-bridge --tables ;;
+  *) exit 1 ;;
+esac'
+  export CONFIG_GEN_IMAGE=config-gen:setup-spec
+}
+
 cleanup_mock_dir() {
     [[ -n "${MOCK_DIR:-}" ]] && rm -rf "${MOCK_DIR}"
 }
