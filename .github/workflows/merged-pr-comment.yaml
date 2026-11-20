@@ -32,6 +32,7 @@ jobs:
             echo 'merge_commit_sha is empty; not a merge event' >&2
             exit 1
           fi
+          body_file="${RUNNER_TEMP:-/tmp}/merged-pr-comment.md"
           owner="${REPO%%/*}"
           name="${REPO#*/}"
           # $owner/$name/$number are GraphQL variables, not shell
@@ -52,7 +53,7 @@ jobs:
             else
               echo 'This PR closes no issue.'
             fi
-          } >"${RUNNER_TEMP:-/tmp}/merged-pr-comment.md"
+          } >"${body_file}"
           # a re-run must not comment twice: only the bot's own comment that
           # begins with the marker line counts as already posted
           prior="$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
@@ -62,4 +63,4 @@ jobs:
             exit 0
           fi
           gh pr comment "${PR}" --repo "${REPO}" \
-            --body-file "${RUNNER_TEMP:-/tmp}/merged-pr-comment.md"
+            --body-file "${body_file}"
