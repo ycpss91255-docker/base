@@ -108,6 +108,7 @@ main() {
 
   if ! image="$(tool_image_derive toml_bridge)" \
     || ! tool_image_ensure toml_bridge "${image}"; then
+    rm -rf -- "${CONFIG_GEN_CTX:?config_gen_steps run under CONFIG_GEN_CTX}/toml-oracle"
     _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=image \
       "display=config_gen_toml_oracle_failed: the pinned toml-bridge image could not be derived or built; there is no tomllib to ask"
     return 1
