@@ -133,6 +133,62 @@ func TestTablesPrintsTheBridgeGolden(t *testing.T) {
 	}
 }
 
+// Every corpus/s1 fixture whose golden/s1/EXPECT class is `parity-refused`
+// -- the rows where toml_bridge.py --tables exits 1, which the golden spec
+// re-checks -- is refused by `config-gen tables` too: exit 1, nothing on
+// stdout, one `config_gen_toml_gate_refused` frame naming the `--name`
+// label, at the 1-based line and byte column of the fixture's first TOML
+// 1.1-only byte (base#1936). Positions are counted by hand on the
+// fixture: `color = "\e` -> `\` is byte 10 of line 3; `A = "\x41"` -> 6
+// of line 3; `opts = {` -> the LF is byte 9 of line 4; `deps = { db = {
+// host = "x", ...` -> the first comma before `}` is byte 27 of line 4;
+// `at = 07:32` -> `0` is byte 6 of line 4. A parity-refused row with no
+// position here fails, so a new row can not pass unchecked.
+func TestTablesParityRefusedFixtureIsOneGateFrame(t *testing.T) {
+	want := map[string][2]string{
+		"toml11_escape_e":              {"3", "10"},
+		"toml11_escape_x":              {"3", "6"},
+		"toml11_inline_newline":        {"4", "9"},
+		"toml11_inline_trailing_comma": {"4", "27"},
+		"toml11_time_no_seconds":       {"4", "6"},
+	}
+	expect := testcorpus.Glob(t, "golden/s1/EXPECT")
+	rows, err := os.ReadFile(expect[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", expect[0], err)
+	}
+	seen := 0
+	for _, row := range strings.Split(strings.TrimSuffix(string(rows), "\n"), "\n") {
+		name, c, _ := strings.Cut(row, "\t")
+		if c != "parity-refused" {
+			continue
+		}
+		seen++
+		t.Run(name, func(t *testing.T) {
+			pos, ok := want[name]
+			if !ok {
+				t.Fatalf("parity-refused row %s has no hand-counted position in this test", name)
+			}
+			src := testcorpus.Glob(t, "corpus/s1/"+name+".toml")[0]
+			label := name + ".toml"
+			rc, stdout, stderr := cli(t, "tables", "--name", label, src)
+			if rc != 1 {
+				t.Fatalf("config-gen tables exited %d, want 1 (stdout %q, stderr %q)", rc, stdout, stderr)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+			}
+			f := refusal(t, stderr, "config_gen_toml_gate_refused", label)
+			if f[4] != pos[0] || f[5] != pos[1] {
+				t.Fatalf("frame line, col = %q, %q, want %s, %s", f[4], f[5], pos[0], pos[1])
+			}
+		})
+	}
+	if seen != len(want) {
+		t.Fatalf("%s holds %d parity-refused rows, want %d", expect[0], seen, len(want))
+	}
+}
+
 // refusal parses stderr fully as frames (the package helper in
 // check_test.go) and fails the test unless it is
 // exactly one error-severity frame with the given event id, whose `file`
