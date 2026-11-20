@@ -1,9 +1,0 @@
-# s5.tsv -- the mutations base#1850 (config-gen S5a, the TOML 1.0 acceptance
-# gate) requires script/test/mutation-probe.sh to report PINNED. One row per
-# behaviour:
-# <id> TAB <subject> TAB <spec> TAB <old> TAB <new> TAB <witness>, the contract of
-# script/test/drivers/mutation_required.sh (base#1461): <old> occurs exactly
-# once in <subject> and is replaced by <new> (empty <new> deletes), both
-# written with the three escapes \\ \t \n. `just test mutation-required`
-# probes every row and passes only when each one is PINNED.
-gate-fuzz-fail-path	dockerfile/Dockerfile.config-gen	test/bats/unit/config_gen_gates_spec.bats	    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \\	    true; \\	^Dockerfile\.config-gen: the fuzz RUN searches only internal/gate's targets, and prints config_gen_gate_fuzz_failed and exits 1 when a search, the listing or the corpus root read fails \(base#1850\)$
