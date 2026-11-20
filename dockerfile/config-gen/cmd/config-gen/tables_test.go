@@ -368,6 +368,32 @@ func TestTablesEveryTOML11FormIsOneGateFrame(t *testing.T) {
 	}
 }
 
+// The bytes of a TOML 1.1-only form are accepted where TOML 1.0 holds
+// them as plain text -- `\e` and a trailing-comma inline table in a
+// comment, `\e` in a literal string, and `{x = 1,}` in a literal string
+// -- so `config-gen tables` exits 0 with nothing on stderr and prints the
+// bridge's own `--tables` answer, `log` and an LF (toml_bridge.py
+// --tables on these bytes, rc 0; base#1936). A check that refused the
+// bytes anywhere in the file instead of the gate's TOML-aware scan would
+// fail it.
+func TestTablesTOML11BytesInACommentOrLiteralStringAreAccepted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "f.toml")
+	src := "[log] # \"\\e\" {a = 1,}\nmsg = 'a\\e[0m'\nt = '{x = 1,}'\n"
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	rc, stdout, stderr := cli(t, "tables", "--name", "f.toml", path)
+	if rc != 0 {
+		t.Fatalf("config-gen tables exited %d, want 0 (stdout %q, stderr %q)", rc, stdout, stderr)
+	}
+	if string(stdout) != "log\n" {
+		t.Fatalf("config-gen tables stdout = %q, want the bridge's %q", stdout, "log\n")
+	}
+	if len(stderr) != 0 {
+		t.Fatalf("config-gen tables stderr = %q, want empty", stderr)
+	}
+}
+
 // An input that is not a regular file -- a directory, a FIFO with no
 // writer, the character device /dev/null, or a listening unix socket --
 // makes `config-gen tables` exit 1 with nothing on stdout and exactly one
