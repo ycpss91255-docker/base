@@ -392,6 +392,35 @@ func TestTablesTOML11FormIsOneGateFrame(t *testing.T) {
 	}
 }
 
+// The gate runs before decode, so a file that holds both a TOML 1.1-only
+// form and a TOML syntax error is reported as the gate refusal, even when
+// the syntax error comes first: line 2, `k = = 1`, is one the decoder
+// refuses (conf_toml_parse_failed, as in
+// TestTablesParseErrorIsOneFrameNamingTheLabel), and line 3,
+// `msg = "\e"`, holds the `\e` escape at byte 8 (`m s g ' ' = ' ' "` is
+// 7 bytes). The answer is exit 1, nothing on stdout, and one
+// `config_gen_toml_gate_refused` frame at 3:8 (base#1936). A command that
+// decoded first and gated only a file the decoder accepted would report
+// the parse error and fail it.
+func TestTablesGateRefusalPrecedesAParseError(t *testing.T) {
+	const label = "both.toml"
+	path := filepath.Join(t.TempDir(), "f.toml")
+	if err := os.WriteFile(path, []byte("[a]\nk = = 1\nmsg = \"\\e\"\n"), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+	if rc != 1 {
+		t.Fatalf("config-gen tables exited %d, want 1 (stdout %q, stderr %q)", rc, stdout, stderr)
+	}
+	if len(stdout) != 0 {
+		t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+	}
+	f := refusal(t, stderr, "config_gen_toml_gate_refused", label)
+	if f[4] != "3" || f[5] != "8" {
+		t.Fatalf("frame line, col = %q, %q, want 3, 8", f[4], f[5])
+	}
+}
+
 // Each of the other five TOML 1.1-only forms internal/gate owns (base#1850)
 // is refused the same way as the `\e` escape: exit 1, nothing on stdout,
 // one `config_gen_toml_gate_refused` frame naming the `--name` label, the
@@ -400,7 +429,11 @@ func TestTablesTOML11FormIsOneGateFrame(t *testing.T) {
 // `v = "\x41"` -> `v ' ' = ' ' "` is 5 bytes, `\` is byte 6;
 // `opts = {` -> 8 bytes, the LF is byte 9; `deps = {db = 1,}` -> the
 // comma is byte 15; `at = 07:30` -> `a t ' ' = ' '` is 5 bytes, `0` is
-// byte 6; the BOM is the file's first byte.
+// byte 6; the BOM is the file's first byte. The column is a byte count,
+// not a character count: in the two `_after_multibyte` rows a two-byte é
+// sits before the offending byte on the same line, so `msg = "é\e"`
+// puts `\` at byte 10 (character 9) and `deps = {"é" = 1,}` puts the
+// comma at byte 17 (character 16).
 func TestTablesEveryTOML11FormIsOneGateFrame(t *testing.T) {
 	for _, tc := range []struct {
 		name, src, line, col, text string
@@ -410,6 +443,8 @@ func TestTablesEveryTOML11FormIsOneGateFrame(t *testing.T) {
 		{"inline_trailing_comma", "[app]\ndeps = {db = 1,}\n", "2", "15", "trailing comma in an inline table is not TOML 1.0"},
 		{"time_no_seconds", "[sched]\nat = 07:30\n", "2", "6", "time without seconds is not TOML 1.0"},
 		{"bom", "\xEF\xBB\xBF[a]\n", "1", "1", "leading byte order mark is not TOML 1.0"},
+		{"escape_e_after_multibyte", "[log]\nmsg = \"\u00e9\\e\"\n", "2", "10", `escape sequence \e is not TOML 1.0`},
+		{"inline_trailing_comma_after_multibyte", "[app]\ndeps = {\"\u00e9\" = 1,}\n", "2", "17", "trailing comma in an inline table is not TOML 1.0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			label := tc.name + ".toml"
@@ -435,17 +470,23 @@ func TestTablesEveryTOML11FormIsOneGateFrame(t *testing.T) {
 	}
 }
 
-// The bytes of a TOML 1.1-only form are accepted where TOML 1.0 holds
-// them as plain text -- `\e` and a trailing-comma inline table in a
-// comment, `\e` in a literal string, and `{x = 1,}` in a literal string
-// -- so `config-gen tables` exits 0 with nothing on stderr and prints the
+// The bytes of every TOML 1.1-only form are accepted where TOML 1.0
+// holds them as plain text, in a comment and in a literal string alike:
+// `\e`, `\x41`, a trailing-comma inline table, the time without seconds
+// `07:32` and the UTF-8 byte order mark EF BB BF (not at the file's
+// start) in the comment and in `msg`, `{x = 1,}` in `t`, and an inline
+// table broken by a line ending in the multi-line literal `m`. So
+// `config-gen tables` exits 0 with nothing on stderr and prints the
 // bridge's own `--tables` answer, `log` and an LF (toml_bridge.py
-// --tables on these bytes, rc 0; base#1936). A check that refused the
-// bytes anywhere in the file instead of the gate's TOML-aware scan would
-// fail it.
+// --tables on these bytes, rc 0; base#1936). A check that refused any of
+// these bytes anywhere in the file instead of the gate's TOML-aware scan
+// would fail it.
 func TestTablesTOML11BytesInACommentOrLiteralStringAreAccepted(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f.toml")
-	src := "[log] # \"\\e\" {a = 1,}\nmsg = 'a\\e[0m'\nt = '{x = 1,}'\n"
+	src := "[log] # \"\\e\" \"\\x41\" {a = 1,} 07:32 \xEF\xBB\xBF\n" +
+		"msg = 'a\\e[0m \\x41 {a = 1,} 07:32 \xEF\xBB\xBF'\n" +
+		"t = '{x = 1,}'\n" +
+		"m = '''{\n  a = 1 }'''\n"
 	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
