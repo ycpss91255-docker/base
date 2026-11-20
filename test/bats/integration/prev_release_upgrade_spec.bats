@@ -271,6 +271,12 @@ _seed_consumer() {
   _init="$(_released_entry init.sh)"
   ( cd "${CONSUMER}" && "${_init}" ) >/dev/null 2>&1 \
     || fail "${_tag}: its own ${_init} failed to bootstrap a consumer"
+  # SEED_ENV_LOCAL=1 stands in for a release that already ships the
+  # .env/.env.local convention (v0.43.0 or newer): its init.sh leaves an
+  # .env.local behind (base#1950).
+  if [[ "${SEED_ENV_LOCAL:-}" == 1 ]]; then
+    printf '# seeded by the released init.sh\n' > "${CONSUMER}/.env.local"
+  fi
   git -C "${CONSUMER}" add -A
   git -C "${CONSUMER}" commit -q -m "chore: bootstrap at ${_tag}"
 }
@@ -1172,6 +1178,14 @@ _assert_upgrade_leaves_an_upgradable_tree() {
   local _tag
   _tag="$(_release_tag 1)"
   _assert_release_migrates_env "${_tag}"
+}
+
+@test "the #868 .env arm holds with a seed that already carries .env.local (#1950)" {
+  _window_written
+  _window_reaches 1 || return 0
+  local _tag
+  _tag="$(_release_tag 1)"
+  SEED_ENV_LOCAL=1 _assert_release_migrates_env "${_tag}"
 }
 
 # why: base#1163's loss was done BY the upgrade path, so it reached
