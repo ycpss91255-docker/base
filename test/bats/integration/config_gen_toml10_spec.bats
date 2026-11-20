@@ -353,6 +353,39 @@ except RecursionError:
     || fail "a refused oracle run left ${S}/ctx/toml-oracle behind"
 }
 
+# why: A clean CI runner has no toml-bridge image, so the step's first
+# `docker image inspect` misses and it must build the image before it
+# runs. The stub's inspect fails and its build succeeds. The step must
+# succeed, the build must use dockerfile/Dockerfile.toml-bridge, and the
+# `docker run` that follows must name exactly the tag the build created;
+# a run of any other tag would ask an image the runner does not have
+# (review round 5, base#1851).
+@test "10-toml-oracle.sh: on an image cache miss the step builds the bridge Dockerfile and runs exactly the tag it built (base#1851)" {
+  printf '1\n' > "${S}/inspect.rc"
+  _oracle
+  assert_success
+  assert_output ''
+  local _a _build='' _runargv=''
+  for _a in "${S}"/docker.*.argv; do
+    case "$(head -n1 "${_a}")" in
+      build) _build="${_a}" ;;
+      run) _runargv="${_a}" ;;
+    esac
+  done
+  [[ -n "${_build}" ]] || fail "a cache miss reached no docker build"
+  assert_equal "$(_run_calls)" 1
+  local _file _built
+  _file="$(grep -A1 -xF -- '-f' "${_build}" | tail -n1)"
+  assert_equal "${_file}" "${R}/dockerfile/Dockerfile.toml-bridge"
+  _built="$(grep -A1 -xF -- '-t' "${_build}" | tail -n1)"
+  [[ "${_built}" =~ ^toml-bridge:[0-9a-f]{12}$ ]] \
+    || fail "the build tags ${_built}, want toml-bridge:<12 hex>"
+  run grep -cxF -- "${_built}" "${_runargv}"
+  assert_output 1
+  run grep -cE '^toml-bridge:' "${_runargv}"
+  assert_output 1
+}
+
 # why: A file's verdict is what the oracle program printed after tomllib
 # answered. An interpreter killed while it runs -- here a python3 first on
 # the stub's PATH that sends itself SIGKILL -- said nothing about the
