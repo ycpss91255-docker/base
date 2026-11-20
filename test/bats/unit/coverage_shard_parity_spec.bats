@@ -405,6 +405,9 @@ printf "%s\n" "${_COVERAGE_JOBS_HOSTED_DEFAULT}"')"
     source /source/script/test/test.sh
     _run_coverage() { _shard_unit_files "$1"; }
     _fix_permissions() { :; }
+    # The partition is under test, not the bare-run prerequisites (base#1423).
+    # Whether shard 2/3 needs .prev-release depends on the live partition.
+    _check_suite_prerequisites() { :; }
     COVERAGE=1 COVERAGE_SHARD=2/3 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       COVERAGE_JOBS=4 SHARD_WEIGHTS_BLOB="'"${_ci_blob#SHARD_WEIGHTS_BLOB=}"'" \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
@@ -480,6 +483,8 @@ printf "%s\n" "${_COVERAGE_JOBS_HOSTED_DEFAULT}"')"
     source /source/script/test/test.sh
     _run_coverage() { bash "${BATS_TEST_TMPDIR}/partition.sh"; }
     _fix_permissions() { :; }
+    # The partition is under test, not the bare-run prerequisites (base#1423).
+    _check_suite_prerequisites() { :; }
     COVERAGE=1 COVERAGE_SHARD=2/3 COVERAGE_PATH= COVERAGE_LOCAL_JOBS= \
       COVERAGE_JOBS=4 SHARD_WEIGHTS_BLOB= \
       BATS_ONLY=1 BATS_UNIT_SHARD= BATS_FRAGILE=0 BATS_INTEGRATION=0 \
