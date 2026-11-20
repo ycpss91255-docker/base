@@ -954,6 +954,36 @@ merge: packages: write'
   refute_output --partial 'steps.'
 }
 
+# why: base#1659 -- the Resolve tags step runs
+# `bash .worker-base/script/ci/release-ref.sh`, and the merge job has no
+# caller checkout, so that file exists only because one checkout step fetches
+# it from the worker repo at the worker's own sha before Resolve tags runs.
+# The resolve-tags harness (_resolve_tags_for) builds that path itself in
+# scratch, so this spec reads the checkout step directly. The step is picked
+# by content (actions/checkout into .worker-base), not by its display name.
+@test "publish-worker.yaml: the merge job checks out the release-ref classifier at the worker sha before Resolve tags (base#1659)" {
+  local _steps='.jobs.merge.steps | to_entries | .[]'
+  local _sel='(.value.uses // "" | test("^actions/checkout@")) and .value.with.path == ".worker-base"'
+  local _checkout="${_steps} | select(${_sel})"
+  run yq -r "[${_checkout}] | length" "${WF}"
+  assert_success
+  assert_output '1'
+  run yq -r "${_checkout} | .value.with.repository" "${WF}"
+  assert_success
+  assert_output 'ycpss91255-docker/base'
+  run yq -r "${_checkout} | .value.with.ref" "${WF}"
+  assert_success
+  assert_output '${{ github.job_workflow_sha }}'
+  run yq -r "${_checkout} | .value.with.\"sparse-checkout\"" "${WF}"
+  assert_success
+  assert_output 'script/ci/release-ref.sh'
+  local _checkout_idx _resolve_idx
+  _checkout_idx="$(yq -r "${_checkout} | .key" "${WF}")"
+  _resolve_idx="$(yq -r "${_steps} | select(.value.name == \"Resolve tags\") | .key" "${WF}")"
+  [[ -n "${_resolve_idx}" ]]
+  (( _checkout_idx < _resolve_idx ))
+}
+
 # _resolve_tags_for <ref> <is_latest> [suffix] -- RUN the merge job's own
 # "Resolve tags" step body (read out of the workflow with yq, not restated)
 # and print what it wrote to GITHUB_OUTPUT followed by its stdout. The
@@ -987,13 +1017,42 @@ _resolve_tags_for() {
   return "${_status}"
 }
 
+# The one yq selector for every actions/checkout step in the merge job, picked
+# by `uses`, not by name, so the base#1656 specs below select the same steps.
+readonly _MERGE_CHECKOUTS='.jobs.merge.steps[] | select((.uses // "") | test("^actions/checkout@"))'
+
+# _merge_sparse_misses <workflow> -- print each .worker-base/<path> that a
+# merge step's run body names but no merge-job checkout's sparse-checkout
+# list names, one per line, and fail when there is one (base#1656). Both
+# sides are read from the parsed YAML with yq, not from the text.
+_merge_sparse_misses() {
+  local _wf="${1}" _runs _sparse _path _misses=''
+  _runs="$(yq '.jobs.merge.steps[].run // ""' "${_wf}")" || return 2
+  _sparse="$(yq "${_MERGE_CHECKOUTS}"' | .with."sparse-checkout" // ""' \
+      "${_wf}")" || return 2
+  while IFS= read -r _path; do
+    [[ -n "${_path}" ]] || continue
+    if ! grep -qxF -- "${_path}" <<< "${_sparse}"; then
+      _misses+="${_path}"$'\n'
+    fi
+  done < <(grep -o '\.worker-base/[A-Za-z0-9_./-]*' <<< "${_runs}" \
+      | sed 's|^\.worker-base/||' | sort -u)
+  if [[ -n "${_misses}" ]]; then
+    printf '%s' "${_misses}"
+    return 1
+  fi
+}
+
 # why: base#1646 -- :latest is the most-consumed tag; a prerelease ref
 # (rc, beta) must publish only its pinned tag and say so.
 @test "publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)" {
   run _resolve_tags_for v1.2.0-rc1 true
   assert_success
-  assert_output --partial 'tags=ghcr.io/o/img:v1.2.0-rc1'
-  refute_output --partial 'latest'
+  # base#1659: every tags= line, whole-line, equals the single pinned tag
+  # (no comma, no second floating tag, no second tags= line).
+  local _tags
+  _tags="$(grep '^tags=' <<<"${output}")"
+  assert_equal "${_tags}" 'tags=ghcr.io/o/img:v1.2.0-rc1'
   assert_output --partial '::notice::'
 }
 
@@ -1013,4 +1072,109 @@ _resolve_tags_for() {
   assert_failure
   refute_output --partial 'tags='
   refute_output --partial 'latest'
+}
+
+# _guide_refusal_line <guide> <step> -- print the line of <guide>'s
+# "### Tag contract" section that names `is_latest: true`, a ref that is "not
+# a version tag" and says "`<step>` step fails", and fail when no line does
+# (base#1656). The step name and the verb are matched as one phrase, so a
+# line that names the step but says it does something else is not accepted.
+_guide_refusal_line() {
+  local _guide="${1}" _step="${2}" _section _line
+  _section="$(awk '/^### Tag contract$/{f=1; next} f && /^#/{exit} f' \
+    "${_guide}")"
+  [[ -n "${_section}" ]] || {
+    printf 'BUG: %s has no "### Tag contract" section\n' "${_guide}"
+    return 2
+  }
+  while IFS= read -r _line; do
+    if [[ "${_line}" == *'is_latest: true'* \
+       && "${_line}" == *'not a version tag'* \
+       && "${_line}" == *"\`${_step}\` step fails"* ]]; then
+      printf '%s\n' "${_line}"
+      return 0
+    fi
+  done <<< "${_section}"
+  return 1
+}
+
+# why: base#1656 -- the refusal above is intended, so a caller must be able
+# to read it in the guide before it stops a release: one line of the guide's
+# "Tag contract" section names `is_latest: true`, a ref that is "not a version
+# tag", and says the step fails. The step's name is read out of the workflow
+# (the merge step that runs release-ref.sh), so renaming the step without the
+# guide fails here. Every bare ref the line gives as an example is run through
+# the real step with is_latest true: it must fail with release-ref.sh's own
+# "is not a version tag" refusal. A copy of the guide whose line says the step
+# still moves :latest, or names the step without saying it fails, is rejected.
+@test "publish-worker guide: is_latest true on a non-version tag fails the classifier step (base#1656)" {
+  local _step _line _ref _refs=0
+  _step="$(yq -r '.jobs.merge.steps[] | select((.run // "") | test("release-ref.sh")) | .name' "${WF}")"
+  [[ -n "${_step}" && "${_step}" != 'null' ]] || {
+    printf 'BUG: no merge step of %s runs release-ref.sh\n' "${WF}"
+    return 1
+  }
+  run _guide_refusal_line /source/doc/guide/publish-worker.md "${_step}"
+  assert_success
+  _line="${output}"
+  # The example refs: backticked tokens with no space and no slash (this
+  # leaves out `is_latest: true`, the step name and the script path).
+  while IFS= read -r _ref; do
+    [[ -n "${_ref}" ]] || continue
+    _refs=$((_refs + 1))
+    run _resolve_tags_for "${_ref}" true
+    assert_failure
+    assert_output --partial "'${_ref}' is not a version tag"
+    refute_output --partial 'tags='
+  done < <(grep -o '`[^` /]*`' <<< "${_line}" | tr -d '`')
+  (( _refs > 0 )) || {
+    printf 'BUG: the guide line names no example ref: %s\n' "${_line}"
+    return 1
+  }
+  # Weaker guides are rejected: the line says the step still moves :latest,
+  # or names the step without saying it fails.
+  local _weak
+  for _weak in \
+      "With \`is_latest: true\` on a ref that is not a version tag, the \`${_step}\` step still moves \`:latest\`." \
+      "With \`is_latest: true\` on a ref that is not a version tag (\`nightly\`), see the \`${_step}\` step; it fails nothing."; do
+    printf '### Tag contract\n\n%s\n' "${_weak}" > "${SCRATCH}/weak-guide.md"
+    run _guide_refusal_line "${SCRATCH}/weak-guide.md" "${_step}"
+    assert_failure
+  done
+}
+
+# why: base#1656 -- the merge job holds `packages: write` and pushes nothing
+# through git, so no checkout in it may leave the job token in the checked-out
+# repo's git config. actions/checkout's own action.yml defaults
+# `persist-credentials` to true, so only an explicit `false` turns it off.
+# Steps are selected by `uses`, not by name: a renamed step or a second
+# checkout added to the merge job later is held to the same rule.
+@test "publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)" {
+  run yq -r "[${_MERGE_CHECKOUTS}] | length" "${WF}"
+  assert_success
+  refute_output '0'
+  # tostring, not `//`: yq's `//` treats a literal false as missing.
+  run yq -r "[${_MERGE_CHECKOUTS}"' | select((.with."persist-credentials" | tostring) != "false")] | length' "${WF}"
+  assert_success
+  assert_output '0'
+}
+
+# why: base#1656 -- the merge job checks base out SPARSE into .worker-base,
+# so a merge step that runs a .worker-base script the sparse path leaves out
+# finds no file and fails only on a real tag push. _merge_sparse_misses
+# <workflow> prints every .worker-base/<path> a merge step runs that the
+# merge checkout's sparse-checkout list does not name, and fails when there
+# is one. The real workflow must pass; a copy whose sparse path names
+# another script must fail and name release-ref.sh, the script "Resolve
+# tags" runs (a worked literal, not read back through the check).
+@test "publish-worker.yaml: the merge checkout's sparse path covers every .worker-base script a merge step runs (base#1656)" {
+  run _merge_sparse_misses "${WF}"
+  assert_success
+  assert_output ''
+  cp -- "${WF}" "${SCRATCH}/narrowed.yaml"
+  yq -i "(${_MERGE_CHECKOUTS}"' | .with."sparse-checkout") = "script/ci/testtools_image.sh"' \
+    "${SCRATCH}/narrowed.yaml"
+  run _merge_sparse_misses "${SCRATCH}/narrowed.yaml"
+  assert_failure
+  assert_output --partial 'script/ci/release-ref.sh'
 }
