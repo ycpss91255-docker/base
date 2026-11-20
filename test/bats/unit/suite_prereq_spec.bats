@@ -90,6 +90,39 @@ _seed_tags() {
   assert_output --partial "HOST_GID"
 }
 
+# why: `--bats-path` resolves its target as ${REPO_ROOT}/<path>, so every
+# spelling that names the same file or directory runs the same specs.
+# Whether the fixture is demanded has to follow the path bats will open,
+# not its spelling: `./test/bats/integration/prev_release_upgrade_spec.bats`
+# used to skip the fixture (and the host preparation) while bats ran it.
+@test "prereq: every spelling of a path selecting the prev-release spec demands the fixture (base#1423)" {
+  local _p
+  for _p in \
+      ./test/bats/integration/prev_release_upgrade_spec.bats \
+      test/bats/integration/./prev_release_upgrade_spec.bats \
+      test//bats/integration/prev_release_upgrade_spec.bats \
+      test/bats/unit/../integration/prev_release_upgrade_spec.bats \
+      ./test/bats/integration/ \
+      ./test \
+      ./; do
+    _prereq_run BATS_FILE="${_p}"
+    assert_failure
+    assert_output --partial ".prev-release/tags.txt"
+  done
+}
+
+# why: the normalisation must not widen the selection either: a path
+# outside the integration directory still runs without the fixture.
+@test "prereq: a path not selecting the prev-release spec needs no fixture (base#1423)" {
+  local _p
+  for _p in ./test/bats/unit/ test/bats/integration/../unit \
+      ./test/bats/integration/apk_mirror_spec.bats; do
+    _prereq_run BATS_FILE="${_p}"
+    assert_success
+    assert_output ""
+  done
+}
+
 # _one_id_missing <unset-var> <system>: the check with the fixture seeded,
 # one host id removed and the other supplied.
 _one_id_missing() {
