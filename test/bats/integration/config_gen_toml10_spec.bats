@@ -433,8 +433,12 @@ except RecursionError:
 # vendored file but SOURCE, in C order, and it was computed from
 # toml-lang/toml-test's tarball at ce08da1 (codeload.github.com, fetched
 # 2026-11-20), laid out as vendored here, not from this checkout (review
+# round 1, base#1851). The suite is a third-party version this repo names,
+# so the upstream-release watch must read it: the pin registry
+# (script/watch/pins.sh) must give v2.2.0 for a `toml-test` pin, which a
+# `tool-pin:` marker in SOURCE declares (base#1395 slice rules, review
 # round 1, base#1851).
-@test "toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, every vendored file is upstream's bytes, and SOURCE names v2.2.0 and the 40-hex commit (base#1851)" {
+@test "toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, every vendored file is upstream's bytes, and SOURCE names v2.2.0 and the 40-hex commit and declares the toml-test pin (base#1851)" {
   local _v=/source/dockerfile/config-gen/internal/gate/testdata/toml-test
   local _f _sum
   while read -r _sum _f; do
@@ -460,4 +464,7 @@ SUMS
   assert_output 1
   run grep -cE '(^|[^0-9a-f])ce08da1[0-9a-f]{33}([^0-9a-f]|$)' "${_v}/SOURCE"
   assert_output 1
+  run --separate-stderr /source/script/watch/pins.sh --value toml-test
+  assert_success
+  assert_output v2.2.0
 }
