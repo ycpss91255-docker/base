@@ -4305,7 +4305,10 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  assert_refusal 1 compose_relocated_root_unusable "path=${_repo}"
+  # The layer check reads setup.toml through config_gen_tables, which
+  # refuses a path a docker --mount cannot name before compose is reached
+  # (base#1937).
+  assert_refusal 1 config_gen_path_unmountable "file=${_repo}/setup.toml"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 

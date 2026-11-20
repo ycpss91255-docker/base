@@ -103,7 +103,7 @@ _setup_refuse_unknown_key() {
 # view), so a family its table does not read is refused like a key.
 #
 # Tables are judged from the layer's own table list (the bridge's
-# --tables view), not only from its key/value rows: a table with no
+# config-gen `tables` view, base#1937), not only from its key/value rows: a table with no
 # entry -- `[deploy2]` alone, or holding only `args = []` -- projects no
 # row, and a row walk passed it with exit 0 (base#1328 review).
 #
@@ -125,7 +125,7 @@ _setup_conf_check_known() {
     local -n _sck_k=_SCK_CONF__keys
     local -A _sck_reported=()
     local _sck_tables=""
-    _sck_tables="$(toml_bridge_parse "${_layer}" --tables)" || return 1
+    config_gen_tables "${_layer}" _sck_tables || return 1
     while IFS= read -r _sect; do
       [[ -z "${_sect}" || "${_sect}" == stage:* ]] && continue
       _setup_known_section "${_sect}" && continue

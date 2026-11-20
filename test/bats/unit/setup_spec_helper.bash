@@ -30,6 +30,8 @@ setup() {
     [[ -f "${_file}" ]] || { echo "toml_bridge_parse: file not found: ${_file}" >&2; return 1; }
     /usr/local/bin/toml-bridge "$@" < "${_file}"
   }
+
+  mock_config_gen_docker
 }
 
 teardown() {
