@@ -224,58 +224,36 @@ SEEDS
 
 # ── the committed roster's shards ───────────────────────────────────────────
 
-# _shards -- the entries of self-test.yaml's mutation-roster matrix, the
-# legs CI runs, one per line. It returns non-zero, naming why on stderr,
-# unless they are at least two and, sorted, exactly 1/N..N/N for N their
-# count, so no leg is repeated, missing or numbered against another N
-# (base#1851).
-_shards() {
-  local _e _n _k _want
-  _e="$(yq '.jobs.mutation-roster.strategy.matrix.shard[]' /source/.github/workflows/self-test.yaml)"
-  _n="$(grep -c . <<< "${_e}" || true)"
-  if (( _n < 2 )); then
-    printf "self-test.yaml's mutation-roster matrix has %s shards\n" "${_n}" >&2
-    return 1
-  fi
-  _want="$(for (( _k = 1; _k <= _n; _k++ )); do printf '%s/%s\n' "${_k}" "${_n}"; done | LC_ALL=C sort)"
-  if [[ "$(LC_ALL=C sort <<< "${_e}")" != "${_want}" ]]; then
-    printf "self-test.yaml's mutation-roster entries are not 1/%s..%s/%s, each once:\n%s\n" "${_n}" "${_n}" "${_n}" "${_e}" >&2
-    return 1
-  fi
-  printf '%s\n' "${_e}"
-}
-
 # why: The roster leaves lint-static for the mutation-roster matrix, and
 # its rows are dealt by recorded seconds, not by index (base#1571). The set
 # of rows a PR run probes must still be the whole roster, each row once,
 # and a spec has to compare the union of the shard row lists with the full
 # roster to show it. `--check --shard <n>/<total>` validates every row,
 # probes nothing, and logs one mutation_required_row_dealt line per row of
-# shard <n> (row=<file>:<line>). Over the committed roster, run on each
-# entry of self-test.yaml's mutation-roster matrix (the legs CI runs,
-# which must be 1/N..N/N, each once: _shards, base#1851), the union of
-# those lists is every non-blank, non-`#` line of every roster file, read
-# here straight from the TSVs, and no row is in two shards.
+# shard <n> (row=<file>:<line>). Over the committed roster, with the shard
+# count of self-test.yaml's mutation-roster matrix, the union of those
+# lists is every non-blank, non-`#` line of every roster file, read here
+# straight from the TSVs, and no row is in two shards.
 @test "shards: over the committed roster the mutation-roster shards' row lists are every row, each once (base#1571)" {
   assert_spec_subject_dir /source/script/test/mutation_required "the committed roster"
-  local _shards _s _want _got
-  local -a _legs
-  _shards="$(_shards)" || fail "self-test.yaml's mutation-roster matrix is not the legs 1/N..N/N, each once"
+  local _wf=/source/.github/workflows/self-test.yaml _t _k _want _got
+  _t="$(yq '.jobs.mutation-roster.strategy.matrix.shard | length' "${_wf}")"
+  [[ "${_t}" =~ ^[1-9][0-9]*$ ]] && (( _t >= 2 )) \
+    || fail "self-test.yaml's mutation-roster matrix has '${_t}' shards"
   _want="$(cd /source && LC_ALL=C awk '
     FNR == 1 { f = FILENAME }
     $0 != "" && substr($0, 1, 1) != "#" { print f ":" FNR }
   ' script/test/mutation_required/*.tsv | LC_ALL=C sort)"
   [[ -n "${_want}" ]] || fail "the committed roster holds no row"
   _got=""
-  mapfile -t _legs <<< "${_shards}"
-  for _s in "${_legs[@]}"; do
-    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_s}"
+  for (( _k = 1; _k <= _t; _k++ )); do
+    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_k}/${_t}"
     assert_success
     _got+="$(grep -F '"body":"mutation_required_row_dealt"' <<< "${stderr}" \
       | sed -n 's/.*"row":"\([^"]*\)".*/\1/p')"$'\n'
   done
   _got="$(grep -v '^$' <<< "${_got}" | LC_ALL=C sort || true)"
-  [[ -n "${_got}" ]] || fail "--check --shard logged no mutation_required_row_dealt line for any shard"
+  [[ -n "${_got}" ]] || fail "--check --shard logged no mutation_required_row_dealt line for any of the ${_t} shards"
   local _dups
   _dups="$(uniq -d <<< "${_got}")"
   [[ -z "${_dups}" ]] || fail "rows dealt to more than one shard:"$'\n'"${_dups}"
@@ -325,9 +303,8 @@ _leg_bound() {
 # bound for J worker slots whatever order the rows are dispatched in;
 # sum/J alone is not one (worked literal: J=4, rows 100,10,10,10 ->
 # sum/J = 32.5, but the 4-slot wall is 100; the bound is 32.5 + 75 =
-# 107.5). For every entry k/N of self-test.yaml's mutation-roster matrix
-# (the legs CI runs, which must be 1/N..N/N, each once: _shards,
-# base#1851), the rows `--check --shard k/N` deals are looked up in the committed
+# 107.5). For every leg k/N of self-test.yaml's mutation-roster matrix,
+# the rows `--check --shard k/N` deals are looked up in the committed
 # seconds.txt (each row=<file>:<line> read back from its TSV line to its
 # <file> TAB <id>) and bounded over the leg's worker slots
 # (MUTATION_REQUIRED_JOBS on the job, else the driver's default of 4).
@@ -339,19 +316,19 @@ _leg_bound() {
   assert_success
   assert_output "107.5"
   local _wf=/source/.github/workflows/self-test.yaml
-  local _sec=/source/script/test/mutation_required/seconds.txt _shards _s _jobs _rows _bound _over=""
-  local -a _legs
+  local _sec=/source/script/test/mutation_required/seconds.txt _t _k _jobs _rows _bound _over=""
   [[ -f "${_sec}" ]] || fail "the committed roster has no seconds.txt"
-  _shards="$(_shards)" || fail "self-test.yaml's mutation-roster matrix is not the legs 1/N..N/N, each once"
+  _t="$(yq '.jobs.mutation-roster.strategy.matrix.shard | length' "${_wf}")"
+  [[ "${_t}" =~ ^[1-9][0-9]*$ ]] && (( _t >= 2 )) \
+    || fail "self-test.yaml's mutation-roster matrix has '${_t}' shards"
   _jobs="$(yq '.jobs.mutation-roster.env.MUTATION_REQUIRED_JOBS // 4' "${_wf}")"
   [[ "${_jobs}" =~ ^[1-9][0-9]*$ ]] || fail "mutation-roster sets MUTATION_REQUIRED_JOBS to '${_jobs}'"
-  mapfile -t _legs <<< "${_shards}"
-  for _s in "${_legs[@]}"; do
-    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_s}"
+  for (( _k = 1; _k <= _t; _k++ )); do
+    run --separate-stderr env LOG_FORMAT=json bash "${MR}" --check --root /source --shard "${_k}/${_t}"
     assert_success
     _rows="$(grep -F '"body":"mutation_required_row_dealt"' <<< "${stderr}" \
       | sed -n 's/.*"row":"\([^"]*\)".*/\1/p')"
-    [[ -n "${_rows}" ]] || fail "--check --shard ${_s} dealt no row"
+    [[ -n "${_rows}" ]] || fail "--check --shard ${_k}/${_t} dealt no row"
     printf '%s\n' "${_rows}" > "${BATS_TEST_TMPDIR}/dealt"
     _bound="$(cd /source && LC_ALL=C awk -F '\t' '
       FILENAME ~ /dealt$/ { split($0, r, ":"); want[r[1] FS r[2]] = 1; next }
@@ -359,7 +336,7 @@ _leg_bound() {
       (FILENAME FS FNR) in want { n = FILENAME; sub(/.*\//, "", n); print sec[n FS $1] }
     ' "${BATS_TEST_TMPDIR}/dealt" "${_sec}" script/test/mutation_required/*.tsv | _leg_bound "${_jobs}")"
     awk -v b="${_bound}" 'BEGIN { exit !(b + 0 <= 240) }' \
-      || _over+="leg ${_s}: ${_bound} s over ${_jobs} worker slots"$'\n'
+      || _over+="leg ${_k}/${_t}: ${_bound} s over ${_jobs} worker slots"$'\n'
   done
   [[ -z "${_over}" ]] \
     || fail "mutation-roster legs whose list-scheduling bound exceeds 240 s:"$'\n'"${_over}"
