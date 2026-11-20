@@ -4418,3 +4418,24 @@ EOF
   # they never asked for.
   refute_stderr_contains "Unknown section"
 }
+
+# why: base#1937 -- the per-layer declared-table read of
+# _setup_conf_check_known goes through config_gen_tables (the config-gen
+# image's `tables` command), not the bridge's `--tables` view. A docker
+# shim records every argv; one layer check must record one config-gen run
+# whose arguments end `tables --name <layer> /in/f`, and no run carrying
+# `--tables`.
+@test "_setup_conf_check_known reads a layer's tables through config-gen, one run (base#1937)" {
+  printf '[gui]\nmode = "wayland"\n' > "${TEMP_DIR}/setup.toml"
+  local _log="${TEMP_DIR}/docker.argv"
+  : > "${_log}"
+  mock_cmd docker "printf '%s\n' \"\$*\" >> '${_log}'; exit 0"
+  export CONFIG_GEN_IMAGE=config-gen:test1937
+  PATH="${MOCK_DIR}:${PATH}" LOG_FORMAT=json \
+    run --separate-stderr _setup_conf_check_known "${TEMP_DIR}"
+  assert_success
+  run grep -c -- " tables --name ${TEMP_DIR}/setup.toml /in/f\$" "${_log}"
+  assert_output 1
+  run grep -c -- "--tables" "${_log}"
+  assert_output 0
+}
