@@ -60,6 +60,19 @@ _seed_tags() {
   assert_output ""
 }
 
+# why: prepare-prev-release.sh writes tags.txt empty on purpose when no
+# stable release falls inside the window (base#1055), and the prev-release
+# spec only needs the file to exist. An empty file means "no release owed",
+# not "fixture missing", so it must not be refused.
+@test "prereq: an empty .prev-release/tags.txt (no release owed) passes (base#1423)" {
+  mkdir -p "${FAKE_ROOT}/.prev-release"
+  : > "${FAKE_ROOT}/.prev-release/tags.txt"
+  _prereq_run
+  assert_success
+  refute_output --partial "ci_missing_prerequisite"
+  refute_output --partial "tags.txt"
+}
+
 # why: the four compose tests need HOST_UID and HOST_GID (compose
 # interpolates them with a required-variable form). A bare container has
 # neither, and the check must say so by variable name rather than let the
