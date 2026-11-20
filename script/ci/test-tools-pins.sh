@@ -93,6 +93,7 @@ _TTP_ARG=(
   'HADOLINT_VERSION'
   'BATS_SUPPORT_VERSION'
   'BATS_ASSERT_VERSION'
+  'GOLANG_VERSION'
 )
 _TTP_PROBE=(
   'bats --version'
@@ -103,7 +104,21 @@ _TTP_PROBE=(
   'hadolint --version | sed -n "s/.*Linter /v/p"'
   'git -C /usr/lib/bats/bats-support describe --tags'
   'git -C /usr/lib/bats/bats-assert describe --tags'
+  'config-gen version | sed -n "s/^toolchain //p"'
 )
+
+# The builder-only class (base#2023): pins whose tool is NOT in the final
+# image, only in a build stage, so the probe asks the artefact the stage
+# made. Such an ARG must be consumed by a FROM line; one that no stage
+# uses ships nothing, and is refused rather than probed.
+_TTP_BUILDER_ONLY=(
+  'GOLANG_VERSION'
+)
+
+# _ttp_builder_only_used <ARG> <file> -- does a FROM line consume ${ARG}?
+_ttp_builder_only_used() {
+  grep -Eiq "^[[:space:]]*FROM[[:space:]].*\\\$\\{?${1}\\}?" "${2}"
+}
 
 # _ttp_root -- the repo root, derived from this file's own location
 # (<root>/script/ci/test-tools-pins.sh). Not a cwd walk: the accessor is
@@ -216,6 +231,13 @@ _ttp_roster() {
       _missing+=" ${_arg}"
       continue
     fi
+    local _b
+    for _b in "${_TTP_BUILDER_ONLY[@]}"; do
+      if [[ "${_b}" == "${_arg}" ]] && ! _ttp_builder_only_used "${_arg}" "${_file}"; then
+        echo "test-tools-pins: ${_arg} is a builder-only pin but no FROM line in ${_file} uses it, so nothing in the build is pinned by it." >&2
+        return 2
+      fi
+    done
     _rows+=("$(printf '%s\t%s\t%s' "${_arg}" "${_pin}" "${_probe}")")
   done
 
