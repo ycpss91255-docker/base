@@ -8525,7 +8525,7 @@ runs).
 
 | Test | Description |
 |------|-------------|
-| `prereq: a missing .prev-release/tags.txt is refused by name (base#1423)` | a bare container run of the whole suite reaches the 16 previous- release tests with no .prev-release/tags.txt (that file is produced on the host by prepare-prev-release.sh). The run has to stop at once and name the file, not fail those tests one by one. |
+| `prereq: a missing .prev-release/tags.txt is refused by name (base#1423)` | a bare container run of the whole suite reaches the previous- release tests with no .prev-release/tags.txt (that file is produced on the host by prepare-prev-release.sh). The run has to stop at once and name the file, not fail those tests one by one. |
 | `prereq: everything supplied passes (base#1423)` | with the fixture and both host ids present the check is silent and succeeds, so a refusal is never the price of a correctly supplied run. |
 | `prereq: an empty .prev-release/tags.txt (no release owed) passes (base#1423)` | prepare-prev-release.sh writes tags.txt empty on purpose when no stable release falls inside the window (base#1055), and the prev-release spec only needs the file to exist. An empty file means "no release owed", not "fixture missing", so it must not be refused. |
 | `prereq: missing HOST_UID and HOST_GID are each named (base#1423)` | the four compose tests need HOST_UID and HOST_GID (compose interpolates them with a required-variable form). A bare container has neither, and the check must say so by variable name rather than let the compose tests fail one by one. |

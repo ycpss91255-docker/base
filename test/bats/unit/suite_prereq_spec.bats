@@ -6,8 +6,8 @@
 # The host-side `just test` supplies the prev-release fixture and the host
 # ids before it starts a container. A bare container run (a bare docker
 # run of the test-tools image, a hosted or self-hosted job that skips the
-# host step) supplies neither, and the person running it saw sixteen
-# previous-release tests and four compose tests fail one by one, well into
+# host step) supplies neither, and the person running it saw the
+# previous-release tests and the compose tests fail one by one, well into
 # the run, instead of one refusal before it (base#1423).
 
 bats_require_minimum_version 1.5.0
@@ -35,7 +35,7 @@ _prereq_run() {
   '
 }
 
-# why: a bare container run of the whole suite reaches the 16 previous-
+# why: a bare container run of the whole suite reaches the previous-
 # release tests with no .prev-release/tags.txt (that file is produced on
 # the host by prepare-prev-release.sh). The run has to stop at once and
 # name the file, not fail those tests one by one.
