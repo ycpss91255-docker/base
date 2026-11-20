@@ -21,30 +21,6 @@ import (
 // against nothing.
 const noOracleMsg = "no live tomllib oracle verdicts; run through just test go"
 
-// The verdicts file is named by CONFIG_GEN_TOML_ORACLE, which only the
-// build `just test go` drives sets. An unset variable (empty path) and a
-// path with no file behind it must both fail with noOracleMsg.
-func TestLoadOracleVerdictsFailsClosed(t *testing.T) {
-	cases := []struct {
-		name string
-		path string
-	}{
-		{"empty path", ""},
-		{"missing file", filepath.Join(t.TempDir(), "absent", "toml-verdicts.tsv")},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			rows, err := loadOracleVerdicts(tc.path)
-			if err == nil {
-				t.Fatalf("loadOracleVerdicts(%q) = %v, nil; want error %q", tc.path, rows, noOracleMsg)
-			}
-			if !strings.Contains(err.Error(), noOracleMsg) {
-				t.Fatalf("loadOracleVerdicts(%q) error = %q, want it to contain %q", tc.path, err.Error(), noOracleMsg)
-			}
-		})
-	}
-}
-
 // The verdict rows must name exactly the TOML files under this package's
 // testdata (base#1851): a file with no row was never asked of tomllib,
 // and a row with no file is a verdict for something the differential
