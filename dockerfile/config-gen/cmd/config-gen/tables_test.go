@@ -79,10 +79,29 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 // bytes the bridge's `toml_bridge.py --tables` prints for the same file,
 // in one stdout Write call, with nothing on stderr (base#1469 Partial
 // write: the answer is built in memory and written once). The want bytes
-// are the goldens captured into golden/s1, one per corpus/s1 fixture.
+// are the goldens captured into golden/s1, one per corpus/s1 fixture
+// whose golden/s1/EXPECT class is `parity`; a fixture of any other class
+// has no golden to print, and one with no row fails (base#1936).
 func TestTablesPrintsTheBridgeGolden(t *testing.T) {
+	expect := testcorpus.Glob(t, "golden/s1/EXPECT")
+	rows, err := os.ReadFile(expect[0])
+	if err != nil {
+		t.Fatalf("read %s: %v", expect[0], err)
+	}
+	class := map[string]string{}
+	for _, row := range strings.Split(strings.TrimSuffix(string(rows), "\n"), "\n") {
+		name, c, _ := strings.Cut(row, "\t")
+		class[name] = c
+	}
 	for _, src := range testcorpus.Glob(t, "corpus/s1/*.toml") {
 		name := strings.TrimSuffix(filepath.Base(src), ".toml")
+		c, ok := class[name]
+		if !ok {
+			t.Fatalf("corpus/s1/%s.toml has no row in %s", name, expect[0])
+		}
+		if c != "parity" {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			goldens := testcorpus.Glob(t, "golden/s1/"+name+".golden")
 			want, err := os.ReadFile(goldens[0])

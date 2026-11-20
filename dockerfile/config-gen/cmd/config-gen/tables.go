@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/diag"
+	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/gate"
 	"github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/tables"
 )
 
@@ -24,6 +25,10 @@ func init() {
 // exits 2 with one `config_gen_usage_invalid` frame on stderr and nothing
 // on stdout. A file the TOML parser refuses exits 1 with one
 // `conf_toml_parse_failed` frame whose `file` is the `--name` label.
+// A TOML 1.1-only form (the six base#1850 lists) exits 1, before decode,
+// with one `config_gen_toml_gate_refused` frame naming the label, the
+// line and the byte column; the same bytes in a comment or a literal
+// string are accepted.
 // An input that is not a regular file (a directory, a FIFO, a device, a
 // socket) exits 1 with one `config_gen_input_not_regular` frame; the open
 // is O_NONBLOCK so a FIFO with no writer cannot hold it. A path that
@@ -65,6 +70,17 @@ func runTables(args []string, stdout, stderr io.Writer, open openFunc) int {
 	src, err := readRegular(open, args[2])
 	if err != nil {
 		return refuseInput(stderr, label, err)
+	}
+	if err := gate.Check(label, src); err != nil {
+		var r *gate.Refusal
+		errors.As(err, &r)
+		return fail(stderr, exitError, diag.Frame{
+			Event: "config_gen_toml_gate_refused",
+			File:  label,
+			Line:  strconv.Itoa(r.Line),
+			Col:   strconv.Itoa(r.Col),
+			Text:  r.Text,
+		})
 	}
 	out, err := tables.Emit(src)
 	if err != nil {

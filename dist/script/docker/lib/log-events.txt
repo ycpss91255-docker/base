@@ -608,3 +608,8 @@ config_gen_diag_malformed
 # unframed text on the run's stderr (text=), outside any diagnostic frame,
 # forwarded once beside any frame's own event.
 config_gen_stray_stderr
+
+# dockerfile/config-gen/cmd/config-gen/tables.go (base#1936): the input
+# holds a TOML 1.1-only form internal/gate refuses (file=, line=, col=),
+# before the decoder reads it.
+config_gen_toml_gate_refused
