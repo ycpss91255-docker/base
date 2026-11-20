@@ -38,10 +38,15 @@ jobs:
           # $owner/$name/$number are GraphQL variables, not shell
           # shellcheck disable=SC2016
           # tool-pin: ignore -- a GraphQL query, not a third-party version
-          query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){nodes{number repository{nameWithOwner}}}}}}'
+          query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){pageInfo{hasNextPage} nodes{number repository{nameWithOwner}}}}}}'
           answer="$(gh api graphql \
             -F owner="${owner}" -F name="${name}" -F number="${PR}" \
             -f query="${query}")"
+          # first:100 is one page; a longer list must not read as complete
+          if [ "$(jq -r '.data.repository.pullRequest.closingIssuesReferences.pageInfo.hasNextPage' <<<"${answer}")" != "false" ]; then
+            echo 'closing issues span more than one page, or the read is incomplete' >&2
+            exit 1
+          fi
           refs="$(jq -r --arg repo "${REPO}" '[.data.repository.pullRequest.closingIssuesReferences.nodes[]
             | if .repository.nameWithOwner == $repo then "#\(.number)"
               else "\(.repository.nameWithOwner)#\(.number)" end] | join(", ")' <<<"${answer}")"
