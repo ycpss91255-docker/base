@@ -446,9 +446,9 @@ var designValues = map[string]map[string]any{
 	"internal/gate/testdata/forms/float-under.toml": {"a": float64(0)},
 }
 
-// int64Rows are the forms files whose acceptance must come through the
-// int64 exception (int64Only) and no other way; every other forms file
-// must not take it.
+// int64Rows are the files whose acceptance must come through the int64
+// exception (int64Only) and no other way; no other file, on any path, may
+// take it.
 var int64Rows = map[string]bool{
 	"internal/gate/testdata/forms/float-over-int64.toml": true,
 	"internal/gate/testdata/forms/int64-over.toml":       true,
@@ -507,7 +507,9 @@ func oracleDifferential(path string, files map[string]string) ([]string, []strin
 // when Check returns nil and toml.Decode then succeeds, refuse otherwise,
 // with one exception: when Check returns nil and toml.Decode refuses only
 // integers outside int64 (int64Only), which tomllib accepts, the verdict
-// is accept. Among the forms files, only int64Rows may take that path.
+// is accept. Only int64Rows may take that path, and each of them must, on
+// every path: forms, toml-test and the shared corpus (review round 2,
+// base#1851).
 // Each disagreeing file is named with both verdicts.
 func differential(rows []string, files map[string]string) []string {
 	rels := make([]string, 0, len(files))
@@ -565,7 +567,7 @@ func differential(rows []string, files map[string]string) []string {
 		if got != live {
 			problems = append(problems, fmt.Sprintf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live))
 		}
-		if viaInt64 != int64Rows[rel] && strings.Contains(rel, "/forms/") {
+		if viaInt64 != int64Rows[rel] {
 			problems = append(problems, fmt.Sprintf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel]))
 		}
 		if want, ok := designValues[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
