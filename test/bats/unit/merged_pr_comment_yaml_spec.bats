@@ -139,6 +139,9 @@ JSON
     '<!-- merged-pr-comment -->' \
     'Merged as deadbeefdeadbeefdeadbeefdeadbeefdeadbeef.' \
     'Closes: #7, other/repo#9.')" ]
+  # exactly one post, aimed at the fixture's PR and repo
+  [ "$(grep -c '^pr comment' "${CALLS}")" = "1" ]
+  grep -qx 'pr comment 42 --repo me/base --body-file .*' "${CALLS}"
 }
 
 # why: A merge that closes no issue still has to notify the owner, and a
