@@ -41,6 +41,30 @@ document wins for which command to run.
 
 One consequence belongs here rather than there, because it is about the command and not the format: the five sections are what a body is *written* to, and `gh-issue.sh edit` therefore asks what the issue carries today before it asks what the new body carries. Most bodies in this tracker predate the requirement, and holding an edit to a shape its body never had makes the oldest issues -- the ones whose measurements have gone stalest -- the ones that cannot be corrected.
 
+## A self-contained issue
+
+An issue is written so that one agent run can pick it up cold. It names one
+behaviour and carries everything the run needs; it never leans on another
+issue's body. "As #1445 specifies" is not a criterion.
+
+A self-contained issue has these parts:
+
+- **`## Seam`**: the test file, and the production file or files, that the
+  change touches.
+- **Acceptance criteria**: the expected result stated concretely, for example
+  an input with its exact output, text or exit code. A criterion does not
+  refer to another issue's body.
+- **`## Out of scope`**: what the change leaves alone. It also records the
+  owner's threat model: crafted inputs and deliberately weakened
+  implementations are not required to be handled.
+- **Size rule**: an issue that needs more than one red test file and one
+  production change, or a diff of roughly 150 lines or more, is split into
+  child issues first. Each child is self-contained in its own right.
+
+The guard that enforces this is tracked in ycpss91255-docker/agent_harness
+(the `gh-issue.sh` script is a local copy of that repo's
+`dist/agents/scripts/gh-issue.sh`).
+
 ## Labels
 
 Which label to apply, and what the state labels mean, is
