@@ -31,6 +31,39 @@ setup() {
   [ "${output}" = "main" ]
 }
 
+# why: Only a MERGED pull request from this repository may reach the job. A
+# job without the merged condition comments on a PR closed unmerged; one that
+# lets a fork through runs with a read-only token and fails (base#2012)
+@test "merged-pr-comment: the job runs only for a merged same-repo pull request" {
+  run yq '.jobs | keys | .[]' "${WF}"
+  assert_success
+  [ "${output}" = "comment" ]
+  run yq '.jobs.comment.if' "${WF}"
+  assert_success
+  [ "${output}" = "github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository" ]
+}
+
+# why: The token is granted exactly what the read and the comment need. A
+# wider grant (write-all, a job-level override) would give a bot comment
+# step more power than the notification needs (base#2012)
+@test "merged-pr-comment: permissions are contents read and pull-requests write only" {
+  run yq -o=json -I=0 '.permissions' "${WF}"
+  assert_success
+  [ "${output}" = '{"contents":"read","pull-requests":"write"}' ]
+  run yq '.jobs.comment | has("permissions")' "${WF}"
+  assert_success
+  [ "${output}" = "false" ]
+}
+
+# why: The step reads the PR number, the repository and the merge sha from
+# env. If a binding points at another event field the comment lands on or
+# names the wrong thing (base#2012)
+@test "merged-pr-comment: the step env binds the repository, PR number and merge sha" {
+  run yq -o=json -I=0 '.jobs.comment.steps[0].env' "${WF}"
+  assert_success
+  [ "${output}" = '{"GH_TOKEN":"${{ github.token }}","REPO":"${{ github.repository }}","PR":"${{ github.event.pull_request.number }}","MERGE_SHA":"${{ github.event.pull_request.merge_commit_sha }}"}' ]
+}
+
 # _stub_gh -- a `gh` on PATH that logs every call to ${CALLS}, answers the
 # GraphQL read with ${GQL_FIXTURE}, answers the comment listing with
 # ${LIST_FIXTURE} ([] when unset) and keeps the body of `pr comment` in
@@ -87,7 +120,7 @@ _run_step() {
 @test "merged-pr-comment: the comment names the merge sha and the closing issues" {
   _stub_gh
   cat >"${GQL_FIXTURE}" <<'JSON'
-{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[
+{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":false},"nodes":[
   {"number":7,"repository":{"nameWithOwner":"me/base"}},
   {"number":9,"repository":{"nameWithOwner":"other/repo"}}]}}}}}
 JSON
@@ -103,7 +136,7 @@ JSON
 # valid empty answer must not read as "Closes: ." (base#2012)
 @test "merged-pr-comment: a PR that closes no issue says so" {
   _stub_gh
-  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' \
     >"${GQL_FIXTURE}"
   _run_step
   assert_success
@@ -118,7 +151,7 @@ JSON
 # owner nothing, so the step fails and posts nothing (base#2012)
 @test "merged-pr-comment: an empty merge sha fails and posts nothing" {
   _stub_gh
-  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' \
     >"${GQL_FIXTURE}"
   MERGE_SHA="" _run_step
   [ "${status}" -ne 0 ]
@@ -130,7 +163,7 @@ JSON
 # that starts with the marker line (base#2012)
 @test "merged-pr-comment: a prior bot comment with the marker suppresses a second post" {
   _stub_gh
-  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' \
     >"${GQL_FIXTURE}"
   cat >"${LIST_FIXTURE}" <<'JSON'
 [{"user":{"login":"someone"},"body":"thanks"},
@@ -138,5 +171,32 @@ JSON
 JSON
   _run_step
   assert_success
+  [ ! -e "${POSTED}" ]
+}
+
+# why: A human comment that quotes the marker is not the bot's earlier post,
+# so it must not suppress the notification (base#2012)
+@test "merged-pr-comment: a human comment quoting the marker does not suppress the post" {
+  _stub_gh
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}' \
+    >"${GQL_FIXTURE}"
+  cat >"${LIST_FIXTURE}" <<'JSON'
+[{"user":{"login":"someone"},"body":"<!-- merged-pr-comment -->\nquoting it"},
+ {"user":{"login":"github-actions[bot]"},"body":"unrelated bot note <!-- merged-pr-comment -->"}]
+JSON
+  _run_step
+  assert_success
+  [ -e "${POSTED}" ]
+}
+
+# why: closingIssuesReferences is read one page at a time (first:100). When
+# more remain, a list presented as complete would drop issues silently, so the
+# step must fail and post nothing (base#2012)
+@test "merged-pr-comment: more than one page of closing issues fails and posts nothing" {
+  _stub_gh
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"pageInfo":{"hasNextPage":true},"nodes":[{"number":7,"repository":{"nameWithOwner":"me/base"}}]}}}}}' \
+    >"${GQL_FIXTURE}"
+  _run_step
+  [ "${status}" -ne 0 ]
   [ ! -e "${POSTED}" ]
 }
