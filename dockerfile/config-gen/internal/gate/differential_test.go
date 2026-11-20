@@ -123,12 +123,15 @@ func oracleFiles(t *testing.T) map[string]string {
 	return files
 }
 
-// differential, the comparison TestDifferential runs, must refuse rows
-// that are not exactly the files, each once, before it compares a single
-// verdict (review round 1, base#1851). The files here both decode, so a
-// verdict comparison alone passes every row set below: a same-count set
-// that repeats a.toml in b.toml's place must name the omitted b.toml, and
-// a set that repeats a.toml beside b.toml must name the repeat.
+// The path TestDifferential takes from the verdicts file to its problems
+// must refuse rows that are not exactly the files, each once, before it
+// compares a single verdict (review round 1, base#1851). The files here
+// both decode, so a verdict comparison alone passes every row set below:
+// a same-count set that repeats a.toml in b.toml's place must name the
+// omitted b.toml, and a set that repeats a.toml beside b.toml must name
+// the repeat. The rows go through the verdicts file, so a loader that
+// dropped a repeated row before the comparison would fail here too
+// (review round 2, base#1851).
 func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{}
@@ -150,15 +153,16 @@ func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := strings.Join(differential(tc.rows, files), "\n")
+			_, problems := oracleDifferential(writeOracle(t, tc.rows), files)
+			got := strings.Join(problems, "\n")
 			if tc.want == "" {
 				if got != "" {
-					t.Fatalf("differential(%q) = %q, want no problem", tc.rows, got)
+					t.Fatalf("oracleDifferential(%q) problems = %q, want no problem", tc.rows, got)
 				}
 				return
 			}
 			if !strings.Contains(got, tc.want) {
-				t.Fatalf("differential(%q) = %q, want it to name %q", tc.rows, got, tc.want)
+				t.Fatalf("oracleDifferential(%q) problems = %q, want them to name %q", tc.rows, got, tc.want)
 			}
 		})
 	}
