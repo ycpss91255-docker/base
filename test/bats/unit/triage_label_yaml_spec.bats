@@ -206,9 +206,157 @@ _applied_labels() {
 # what an unlabeled externally-filed issue is waiting for
 @test "triage-label: the unlabeled-issue safety net applies the intake role" {
   local _wf="triage-label.yaml"
-  assert_spec_subject "${WF_DIR}/${_wf}" "the safety net that labels externally-filed unlabeled issues"
+  assert_spec_subject "${WF_DIR}/${_wf}" "the safety net that keeps a state label on every issue"
   run _applied_labels "${_wf}"
   assert_success
   assert_line 'needs-triage'
   refute_line 'triage'
+}
+
+# why: The rule is "exactly one state label", and a label set changes on
+# three events, not one. Triggering on `opened` alone never sees a state
+# label being removed, so an issue whose last state label is taken off
+# stays stateless for good; `labeled` alone misses that same removal.
+# Only all three keep the net in front of every change (base#1713)
+@test "triage-label: the safety net runs on opened, labeled and unlabeled" {
+  local _wf="${WF_DIR}/triage-label.yaml"
+  assert_spec_subject "${_wf}" "the safety net that keeps a state label on every issue"
+  run yq '.on.issues.types[]' "${_wf}"
+  assert_success
+  assert_line 'opened'
+  assert_line 'labeled'
+  assert_line 'unlabeled'
+  [ "${#lines[@]}" -eq 3 ]
+}
+
+# why: The old gate asked "any label at all?" while the rule is about STATE
+# labels, so a kind label alone (`enhancement`, set by the to-issues flow
+# at creation) skipped the job and left the issue stateless. Which labels
+# count is the step's business, read at run time; the job itself may only
+# refuse a closed issue. Asserted positively, so `!labels[0]`,
+# `labels.length == 0`, `toJSON(...) == '[]'` and a step-level gate all
+# fail it, not just today's spelling (base#1713)
+@test "triage-label: the job is gated only on the issue being open" {
+  local _wf="${WF_DIR}/triage-label.yaml"
+  assert_spec_subject "${_wf}" "the safety net that keeps a state label on every issue"
+  run yq '.jobs | length' "${_wf}"
+  assert_success
+  assert_output '1'
+  run yq '.jobs.label.if' "${_wf}"
+  assert_success
+  assert_output "github.event.issue.state == 'open'"
+  run yq '[.jobs.label.steps[] | select(has("if"))] | length' "${_wf}"
+  assert_success
+  assert_output '0'
+}
+
+# _triage_step_for <labels-json> -- run the workflow's own labelling step
+# against one label set, with `gh` stubbed on PATH. The stub serves
+# <labels-json> to `gh api` and appends every argv it is given, one call per
+# line, to ${BATS_TEST_TMPDIR}/gh.log. The fixture reaches the step ONLY
+# through that `gh api` answer, never the event payload. Exit 2 when the
+# workflow declares no such step: an empty body is not a passing step.
+_TRIAGE_STEP='Add or remove needs-triage by state label count'
+_triage_step_for() {
+  local _labels="${1}" _body _dir="${BATS_TEST_TMPDIR}/triage"
+  _body="$(yaml_step_run "${WF_DIR}/triage-label.yaml" label "${_TRIAGE_STEP}")" || {
+    printf 'BUG: yq could not read the labelling step\n'
+    return 2
+  }
+  if [[ -z "${_body}" || "${_body}" == 'null' ]]; then
+    printf 'BUG: triage-label.yaml declares no step named %s in its label job\n' \
+      "${_TRIAGE_STEP}"
+    return 2
+  fi
+  rm -rf "${_dir}"
+  mkdir -p "${_dir}/bin"
+  printf '%s\n' "${_body}" > "${_dir}/step.sh"
+  printf '%s\n' "${_labels}" > "${_dir}/labels.json"
+  : > "${BATS_TEST_TMPDIR}/gh.log"
+  cat > "${_dir}/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${STUB_GH_LOG}"
+if [[ "${1:-}" == 'api' ]]; then
+  [[ -z "${STUB_GH_API_FAIL:-}" ]] || exit 1
+  cat "${STUB_LABELS}"
+fi
+exit 0
+STUB
+  chmod +x "${_dir}/bin/gh"
+  PATH="${_dir}/bin:${PATH}" \
+  STUB_GH_LOG="${BATS_TEST_TMPDIR}/gh.log" \
+  STUB_LABELS="${_dir}/labels.json" \
+  GH_TOKEN=stub REPO=ycpss91255-docker/base ISSUE=4242 \
+    bash "${_dir}/step.sh" 2>&1
+}
+
+# why: The rule is "exactly one state label" and the roster is the doc's
+# table, so the predicate is a count of roster names in the label set the
+# issue carries NOW. No state label, whatever else is there (a kind label
+# set at creation, or the last state just removed), gets the intake role;
+# any one role from the doc -- read here, not from the step's own copy --
+# gets nothing. An unconditional add, an inverted gate, a counter that only
+# looks for needs-triage and a hand-copied roster missing a role all fail
+# one half of this (base#1713)
+@test "triage-label: a label set with no state label gets needs-triage, one with a state label does not" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  local _fx _role _roles
+  for _fx in '[]' '[{"name":"enhancement"}]'; do
+    run _triage_step_for "${_fx}"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+    run grep -cxF 'issue edit 4242 --repo ycpss91255-docker/base --add-label needs-triage' \
+      "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+  done
+  _roles="$(_state_roles)"
+  [ -n "${_roles}" ]
+  while IFS= read -r _role; do
+    run _triage_step_for "[{\"name\":\"enhancement\"},{\"name\":\"${_role}\"}]"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '0'
+  done <<< "${_roles}"
+}
+
+# why: The rule is "exactly one state label", and the common way to break
+# it is moving an issue on without taking the intake role off: adding
+# ready-for-agent while needs-triage is still set leaves two states, and an
+# agent picking ready-for-agent work is handed an issue that is also still
+# untriaged. needs-triage next to ANY other role from the doc's table --
+# read here, not from the step's own copy -- is the leftover, so the step
+# removes it and makes no other edit; the later role is the decision
+# (base#1713)
+@test "triage-label: needs-triage left beside another state label is removed" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  local _role _roles _n=0
+  _roles="$(_state_roles)"
+  [ -n "${_roles}" ]
+  while IFS= read -r _role; do
+    [[ "${_role}" == 'needs-triage' ]] && continue
+    _n=$((_n + 1))
+    run _triage_step_for "[{\"name\":\"enhancement\"},{\"name\":\"needs-triage\"},{\"name\":\"${_role}\"}]"
+    assert_success
+    run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+    run grep -cxF 'issue edit 4242 --repo ycpss91255-docker/base --remove-label needs-triage' \
+      "${BATS_TEST_TMPDIR}/gh.log"
+    assert_output '1'
+  done <<< "${_roles}"
+  [ "${_n}" -eq 5 ]
+}
+
+# why: The step decides from a label read, and an API error is not an
+# answer. Reading a failed `gh api` as an empty set (`|| true`,
+# `|| echo '[]'`) would see "no state label" on an issue that carries
+# ready-for-agent and add needs-triage to it, breaking the very rule this
+# net enforces. A failed read fails the step and edits nothing (base#1713)
+@test "triage-label: a failed label read adds nothing" {
+  assert_spec_subject "${WF_DIR}/triage-label.yaml" "the safety net that keeps a state label on every issue"
+  STUB_GH_API_FAIL=1 run _triage_step_for '[{"name":"ready-for-agent"}]'
+  assert_failure
+  [ "${status}" -ne 2 ]
+  run grep -c '^issue edit' "${BATS_TEST_TMPDIR}/gh.log"
+  assert_output '0'
 }

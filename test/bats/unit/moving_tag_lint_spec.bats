@@ -1,0 +1,516 @@
+#!/usr/bin/env bats
+#
+# Unit tests for script/test/drivers/moving_tag.sh -- the "nothing internal
+# consumes a moving test-tools tag" lint (base#1647).
+#
+# The release workflow publishes test-tools as :<ver> always, :latest for a
+# non-prerelease tag and :main from main. :latest and :main are conveniences
+# for humans and bootstrap; an internal build that resolves the tooling image
+# by one of them gets whatever was pushed last, which is how base#1122
+# happened. The lint refuses such a reference in base's own workflows,
+# Dockerfiles, compose, justfile and scripts outside a per-line allow-list.
+#
+# Detection runs against a controlled temp REPO_ROOT so the spec is
+# independent of the live tree's contents. Shape mirrors
+# arch_literal_lint_spec.bats.
+
+setup() {
+  export LOG_FORMAT=text
+  load "${BATS_TEST_DIRNAME}/test_helper"
+
+  # Source the driver in isolation (not test.sh, which makes REPO_ROOT
+  # readonly). The driver references the REPO_ROOT global + _die; provide
+  # both so the function runs against a controlled scratch tree.
+  # shellcheck disable=SC1091
+  source /source/dist/script/docker/lib/_lib.sh
+  _die() { local _ev="${1}"; shift; _log_err ci "${_ev}" "display=$*"; return 1; }
+  # shellcheck disable=SC1091
+  source /source/script/test/drivers/moving_tag.sh
+
+  SCRATCH="$(mktemp -d)"
+  REPO_ROOT="${SCRATCH}"
+}
+
+teardown() {
+  [[ -n "${SCRATCH:-}" ]] && rm -rf "${SCRATCH}"
+}
+
+# _write <relative-path> <line>... -- create a scanned-tree fixture file.
+_write() {
+  local _rel="${1}"; shift
+  mkdir -p "$(dirname "${SCRATCH}/${_rel}")"
+  printf '%s\n' "$@" > "${SCRATCH}/${_rel}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: violations
+# ════════════════════════════════════════════════════════════════════
+
+# why: AC 1 of base#1647. A lint that never fires would pass every
+# other case below; this is the literal moving tag a workflow would pull.
+@test "_run_moving_tag: FAILS on a workflow that pulls test-tools:latest, naming file and line (base#1647)" {
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2"* ]]
+}
+
+# why: An editor may save a file with no trailing newline; a bare
+# `read -r` drops that last line, so a moving tag there must still be seen.
+@test "_run_moving_tag: FAILS on test-tools:latest on a last line with no trailing newline (base#1647)" {
+  mkdir -p "${SCRATCH}/.github/workflows"
+  printf '%s\n%s' 'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest' \
+    > "${SCRATCH}/.github/workflows/x.yaml"
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+}
+
+# why: :main moves as surely as :latest, and an internal reference may
+# spell the registry through a variable rather than in full.
+@test "_run_moving_tag: FAILS on a script naming test-tools:main under an unqualified registry prefix (base#1647)" {
+  _write "script/ci/a.sh" \
+    '#!/usr/bin/env bash' \
+    'TEST_TOOLS_IMAGE=${ORG}/test-tools:main'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:2"* ]]
+}
+
+# why: The base#1122 regression, from git show a67636b3: no literal moving tag,
+# an input defaulting to "latest" feeding the image tag.
+@test "_run_moving_tag: FAILS on a tag fed by a workflow input whose default is latest (the pre-base#1204 build-worker shape, base#1647)" {
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        required: false' \
+    '        type: string' \
+    '        default: "latest"' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - with:' \
+    '          build-args: |' \
+    '            TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:13"* ]]
+}
+
+# why: The tag line carries no test-tools text; only the base line does.
+@test "_run_moving_tag: FAILS on an untagged qualified test-tools base that a later line suffixes with :latest, naming the base line (base#1647)" {
+  _write ".github/workflows/publish.yaml" \
+    'env:' \
+    '  IMAGE: ghcr.io/ycpss91255-docker/test-tools' \
+    'jobs:' \
+    '  push:' \
+    '    steps:' \
+    '      - run: docker push "${IMAGE}:latest"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/publish.yaml:2"* ]]
+}
+
+# why: Not only workflows: every scanned root counts, and a tag taken from a
+# variable (:${ver}) is mutable, not a pin.
+@test "_run_moving_tag: FAILS on a variable test-tools tag in a Dockerfile, compose.yaml and the justfile, one violation each (base#1647)" {
+  _write "dist/dockerfile/Dockerfile" \
+    'ARG ver' \
+    'FROM ghcr.io/ycpss91255-docker/test-tools:${ver} AS tools'
+  _write "compose.yaml" \
+    'services:' \
+    '  devel:' \
+    '    image: ghcr.io/ycpss91255-docker/test-tools:${ver}'
+  _write "justfile" \
+    'lint:' \
+    '    docker run --rm ghcr.io/ycpss91255-docker/test-tools:${ver} lint'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dist/dockerfile/Dockerfile:2"* ]]
+  [[ "${output}" == *"compose.yaml:3"* ]]
+  [[ "${output}" == *"justfile:2"* ]]
+  [[ "${output}" == *"3 internal reference(s)"* ]]
+}
+
+# why: init.sh and upgrade.sh are root-level scripts outside every scanned
+# directory, so each is its own scan root.
+@test "_run_moving_tag: FAILS on test-tools:latest in the root init.sh and upgrade.sh, one violation each (base#1647)" {
+  _write "init.sh" \
+    '#!/usr/bin/env bash' \
+    'docker pull ghcr.io/ycpss91255-docker/test-tools:latest'
+  _write "upgrade.sh" \
+    '#!/usr/bin/env bash' \
+    'docker pull ghcr.io/ycpss91255-docker/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"init.sh:2: moving"* ]]
+  [[ "${output}" == *"upgrade.sh:2: moving"* ]]
+  [[ "${output}" == *"2 internal reference(s)"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: scan scope
+# ════════════════════════════════════════════════════════════════════
+
+# why: The lint scans fixed roots, never the whole tree: a local-only ignored
+# copy (.prev-release/, .env, log/ ...) would fail it locally and pass on
+# CI. Every unanchored .gitignore name inside a root is skipped, and
+# doc/, test/ and Markdown are out of scope.
+@test "_run_moving_tag: PASSES when a moving tag sits only in git-ignored or unscanned paths (base#1647)" {
+  local _hit='image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  _write ".github/workflows/clean.yaml" 'name: clean'
+  _write ".prev-release/v0.41.0/.github/workflows/build-worker.yaml" "${_hit}"
+  _write ".env" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.env" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.env.local" "TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:latest"
+  _write "dist/.setup.conf.local" "${_hit}"
+  _write "script/log/x.sh" "${_hit}"
+  _write "script/coverage/x.sh" "${_hit}"
+  _write "script/coverage-shards/x.sh" "${_hit}"
+  _write "script/multi_run/x.sh" "${_hit}"
+  _write "script/.config-gen-bin/x.sh" "${_hit}"
+  _write "script/__pycache__/x.sh" "${_hit}"
+  _write "dist/.prev-release/v0.41.0/x.yaml" "${_hit}"
+  _write "doc/guide/x.sh" "${_hit}"
+  _write "test/bats/x.bats" "${_hit}"
+  _write "README.md" "${_hit}"
+  _write "dist/README.md" "${_hit}"
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: Only a moving, untagged or run-time tag is a finding. A pinned
+# version or digest, a documentation placeholder, a local content tag and
+# a name that merely contains test-tools (a workflow file, a Dockerfile, a
+# compose service key) are not consumers of a moving tag.
+@test "_run_moving_tag: PASSES on pinned, placeholder and local test-tools tags and on names that only contain test-tools (base#1647)" {
+  _write ".github/workflows/pinned.yaml" \
+    'jobs:' \
+    '  a:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools:v0.43.0' \
+    '  b:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools:v0.43.0-rc1' \
+    '  c:' \
+    '    container: ghcr.io/ycpss91255-docker/test-tools@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' \
+    '  d:' \
+    '    uses: ./.github/workflows/release-test-tools.yaml'
+  _write "script/ci/a.sh" \
+    '#!/usr/bin/env bash' \
+    'echo "pull ghcr.io/ycpss91255-docker/test-tools:<ver>"' \
+    'echo "or ghcr.io/ycpss91255-docker/test-tools:vX.Y.Z"' \
+    'docker run --rm test-tools:local' \
+    'docker run --rm test-tools:0123456789ab' \
+    'docker build -f dockerfile/Dockerfile.test-tools .'
+  _write "compose.yaml" \
+    'services:' \
+    '  test-tools:' \
+    '    image: test-tools:local'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+}
+
+# ════════════════════════════════════════════════════════════════════
+# _run_moving_tag: allow-list
+# ════════════════════════════════════════════════════════════════════
+
+# why: The table is read through _moving_tag_allowlist (one entry per line,
+# '<path>|<kind>|<scope>|<count>|<token>|<reason>'); the spec overrides it.
+@test "_run_moving_tag: an allow-list entry suppresses only its own path, kind, token and anchored line (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|indirect|line:ANCH|1|test-tools:${v}|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "ANCH test-tools:${v}"'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+
+  # Another token in the same file, and the same anchored line in another
+  # file, are not covered by the entry.
+  _write "script/ci/a.sh" 'echo "ANCH test-tools:${v}"' 'X=test-tools:${w}'
+  _write "script/ci/b.sh" 'echo "ANCH test-tools:${v}"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:2: indirect"* ]]
+  [[ "${output}" == *"script/ci/b.sh:1: indirect"* ]]
+  [[ "${output}" != *"script/ci/a.sh:1:"* ]]
+}
+
+# why: An entry pins how many occurrences it covers: a copy of the sanctioned
+# hint is a new consumer, not a second exception.
+@test "_run_moving_tag: FAILS when an entry's anchored occurrences outnumber its count, naming every matched line (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" \
+    'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"' \
+    'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"pins 1, saw 2"* ]]
+  [[ "${output}" == *"script/ci/a.sh:1"* ]]
+  [[ "${output}" == *"script/ci/a.sh:2"* ]]
+}
+
+# why: Scope 'comment': the line starts with optional blanks then '#'. Code
+# under a comment entry is a new consumer.
+@test "_run_moving_tag: a comment-scoped entry suppresses only a comment line, never code carrying its token (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' '.github/workflows/w.yaml|moving|comment|1|test-tools:latest|fixture'
+  }
+  _write ".github/workflows/w.yaml" \
+    'jobs:' \
+    '  # moved test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"moving test-tools tag lint: clean"* ]]
+
+  _write ".github/workflows/w.yaml" \
+    'jobs:' \
+    '  # moved test-tools:latest' \
+    '  image: ${REGISTRY}/test-tools:latest'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/w.yaml:3: moving"* ]]
+  [[ "${output}" != *".github/workflows/w.yaml:2:"* ]]
+}
+
+# why: The base#1122 shape is never a sanctioned exception: an entry naming its
+# path, kind, scope and token leaves it a violation.
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag fed by an input defaulting to latest (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' '.github/workflows/build-worker.yaml|input-default|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture'
+  }
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        default: "latest"' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - run: echo TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
+}
+
+# why: An input defaulting to main moves with every push to main just as
+# latest moves with every release: an unquoted `default: main` is the same
+# base#1122 shape, and an entry naming it as an indirect tag leaves it a
+# violation.
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag fed by an input defaulting to an unquoted main (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' \
+      '.github/workflows/build-worker.yaml|indirect|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture' \
+      '.github/workflows/build-worker.yaml|input-default|line:TEST_TOOLS_IMAGE=|1|test-tools:${{ inputs.test_tools_version }}|fixture'
+  }
+  _write ".github/workflows/build-worker.yaml" \
+    'on:' \
+    '  workflow_call:' \
+    '    inputs:' \
+    '      test_tools_version:' \
+    '        default: main' \
+    'jobs:' \
+    '  build:' \
+    '    steps:' \
+    '      - run: echo TEST_TOOLS_IMAGE=ghcr.io/ycpss91255-docker/test-tools:${{ inputs.test_tools_version }}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/build-worker.yaml:9: input-default"* ]]
+}
+
+# why: ${TAG:-latest} resolves to the moving tag whenever TAG is unset: it is
+# never a sanctioned exception, whichever kind an entry names for it.
+@test "_run_moving_tag: an allow-list entry cannot suppress a tag whose variable defaults to latest (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' \
+      'dockerfile/Dockerfile.x|indirect|line:FROM|1|test-tools:${TAG:-latest}|fixture' \
+      'dockerfile/Dockerfile.x|moving-default|line:FROM|1|test-tools:${TAG:-latest}|fixture'
+  }
+  _write "dockerfile/Dockerfile.x" 'FROM ${T}/test-tools:${TAG:-latest}'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"dockerfile/Dockerfile.x:1: moving-default"* ]]
+}
+
+# why: A removed or reworded exception leaves its entry behind: the table must
+# not keep a slot a new consumer could later fill unnoticed.
+@test "_run_moving_tag: FAILS as stale when an entry matches fewer occurrences than its count (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|2|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"stale"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: A count-0 entry sanctions nothing and is never stale: it would sit in
+# the table forever. A count must be a positive integer.
+@test "_run_moving_tag: FAILS on an allow-list entry whose count is 0 (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|0|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "no image here"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"count"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: An exception nobody can explain is an exception nobody can retire:
+# every entry must say why the moving reference is sanctioned.
+@test "_run_moving_tag: FAILS on an allow-list entry with an empty reason (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"reason"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: A reason of blanks only says no more than an empty one, so the reason
+# rule must not be met by whitespace padding.
+@test "_run_moving_tag: FAILS on an allow-list entry whose reason is only blanks (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1|ghcr.io/ycpss91255-docker/test-tools:main|   '
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"reason"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: 'line:' with no anchor names no line: it would read as matching every
+# line of the file, the file-wide entry the per-line scope rules out.
+@test "_run_moving_tag: FAILS on an allow-list entry whose line scope has an empty anchor (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:|1|ghcr.io/ycpss91255-docker/test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh"*"anchor"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# why: Every line contains the empty string, so an entry with no token would
+# read as covering every same-path, kind and scope occurrence: it names no
+# reference and must suppress none.
+@test "_run_moving_tag: an allow-list entry with an empty token suppresses no occurrence (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|moving|line:HINT|1||fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:1: moving"* ]]
+}
+
+# why: An entry sanctions one kind of reference. An indirect-tag entry whose
+# token and anchor also sit on a line with a literal :main must not let that
+# moving reference through.
+@test "_run_moving_tag: an allow-list entry of another kind does not suppress a moving reference on its anchored line (base#1647)" {
+  _moving_tag_allowlist() {
+    printf '%s\n' 'script/ci/a.sh|indirect|line:HINT|1|test-tools:main|fixture'
+  }
+  _write "script/ci/a.sh" 'echo "HINT ghcr.io/ycpss91255-docker/test-tools:main"'
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"script/ci/a.sh:1: moving"* ]]
+}
+
+# why: A lint that scanned nothing found nothing: a REPO_ROOT that points at the
+# wrong tree (or roots that were renamed away) must not read as clean.
+@test "_run_moving_tag: FAILS when the scanned roots hold no file at all (base#1647)" {
+  _moving_tag_allowlist() { :; }
+  mkdir -p "${SCRATCH}/.github/workflows" "${SCRATCH}/script"
+  run _run_moving_tag
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"no file"* ]]
+  [[ "${output}" != *"moving test-tools tag lint: clean"* ]]
+}
+
+# _seed_test_sh -- copy into SCRATCH only what script/test/test.sh sources:
+# test.sh, its drivers and their helper scripts, script/watch/lib.sh and
+# dist/script/docker/lib. base's own workflows and scripts stay out: the
+# current-tree pass is lint-static's job, not the coverage suite's (base#1075).
+_seed_test_sh() {
+  local _f
+  mkdir -p "${SCRATCH}/script/test" "${SCRATCH}/script/watch" \
+    "${SCRATCH}/dist/script/docker"
+  cp -a /source/script/test/test.sh /source/script/test/drivers \
+    "${SCRATCH}/script/test/"
+  for _f in spec-markers.sh check_test_md_drift.sh sync-doc-counts.sh \
+    sync-readme-hashes.sh toml_fixture_lint.sh; do
+    cp -a "/source/script/test/${_f}" "${SCRATCH}/script/test/"
+  done
+  cp -a /source/script/watch/lib.sh "${SCRATCH}/script/watch/"
+  cp -a /source/dist/script/docker/lib "${SCRATCH}/dist/script/docker/"
+}
+
+# _run_seeded <commands> -- source the scratch copy of test.sh, move the
+# copied sources out of the scanned roots, then run <commands> in that
+# shell. Once sourced, the functions no longer need their files, and the
+# scan then walks the fixture alone: one fixture finding is the whole
+# report, and no copy of the drivers is scanned under kcov.
+_run_seeded() {
+  run env -u GITHUB_ACTIONS LOG_FORMAT=json bash -c '
+    source "$1/script/test/test.sh"
+    mkdir "$1/sourced"
+    mv "$1/script" "$1/dist" "$1/sourced/"
+    set -eo pipefail
+    eval "$2"
+  ' _ "${SCRATCH}" "${1}"
+}
+
+# ════════════════════════════════════════════════════════════════════
+# The dispatcher seam: the self-test lint phase reaches the driver
+# ════════════════════════════════════════════════════════════════════
+
+# why: A driver nothing calls passes every test above and gates nothing:
+# `just test lint`, the lint-static CI groups and the host --<tool>-only
+# arm all go through test.sh's _LINT_TOOLS table and its dispatch case.
+# The scratch tree carries a copy of test.sh and what it sources, so its
+# REPO_ROOT is the scratch tree and the phase scans the fixture, not the
+# live checkout.
+@test "_run_lint_tools: the lint phase reaches the moving-tag driver and fails on an added test-tools:latest (base#1647)" {
+  _seed_test_sh
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  _run_seeded '
+    printf "%s\n" "${_LINT_TOOLS[@]}" | grep -cx moving-tag
+    _run_lint_tools moving-tag'
+  [ "${status}" -ne 0 ]
+  [[ "${lines[0]}" == "1" ]]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+  [[ "${output}" == *"ci_moving_tag"* ]]
+  [[ "${output}" == *"1 internal reference(s)"* ]]
+}
+
+# why: The host arm is the other entry point the help text and CI's
+# dedicated-job check name; it must run the same driver. main is what
+# `bash test.sh --moving-tag-only` runs once the source guard passes.
+@test "test.sh --moving-tag-only: runs the moving-tag driver on the host and fails on an added test-tools:latest (base#1647)" {
+  _seed_test_sh
+  _write ".github/workflows/x.yaml" \
+    'jobs:' \
+    '  image: ghcr.io/ycpss91255-docker/test-tools:latest'
+  _run_seeded 'main --moving-tag-only'
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *".github/workflows/x.yaml:2: moving"* ]]
+  [[ "${output}" == *"1 internal reference(s)"* ]]
+}

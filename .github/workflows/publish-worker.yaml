@@ -404,6 +404,8 @@ jobs:
       # base#1646 -- the merge job has no caller checkout, so the one org
       # classifier (script/ci/release-ref.sh) is fetched at the worker's own
       # ref, sparse, for the Resolve tags step below.
+      # base#1656 -- the job holds packages: write but only reads one script,
+      # so the job token is not persisted into .worker-base's git config.
       - name: Checkout the release-ref classifier (version-matched via job_workflow_sha)
         uses: actions/checkout@v7
         with:
@@ -412,6 +414,7 @@ jobs:
           path: .worker-base
           sparse-checkout: script/ci/release-ref.sh
           sparse-checkout-cone-mode: false
+          persist-credentials: false
 
       - name: Resolve tags
         id: tags

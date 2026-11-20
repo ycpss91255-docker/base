@@ -1598,3 +1598,39 @@ _run_build_stage() {
   run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
   assert_success
 }
+
+# why: The generated template has `ARG TEST_TOOLS_IMAGE` with no default
+# and an uncommented `FROM ${TEST_TOOLS_IMAGE} AS test-tools-stage`.
+# base#1670 saw `--target devel` fail without the build-arg ("base name
+# (${TEST_TOOLS_IMAGE}) should not be blank"). A `--target runtime` build
+# without it was not run; this step gets the same build-arg as its
+# siblings. Scoped to that step: the devel-test, devel and runtime-test
+# steps already carry the line, so a whole-file match would pass without
+# the fix (base#1680).
+@test "build-worker.yaml: the Build runtime stage step passes TEST_TOOLS_IMAGE from the testtools step output (base#1680)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Build runtime stage") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Build runtime stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}
+
+# why: The no-cache retry of the runtime build (base#1702) rebuilds the
+# same `--target runtime` with the same Dockerfile, so it needs the same
+# TEST_TOOLS_IMAGE build-arg as the first attempt. Without it, a stale
+# cache import moves the failure from the import to a blank base name
+# instead of recovering. Scoped to the retry step: the first attempt
+# already carries the line (base#1680).
+@test "build-worker.yaml: the runtime no-cache retry step passes TEST_TOOLS_IMAGE from the testtools step output (base#1680)" {
+  local _args
+  _args="$(yq -N '.. | select(tag == "!!map" and .name == "Retry runtime stage without the cache import") | .with["build-args"]' "${WF}")"
+  [ -n "${_args}" ] || {
+    echo "no Retry runtime stage step with build-args found" >&2
+    return 1
+  }
+  run grep -Fx 'TEST_TOOLS_IMAGE=${{ steps.testtools.outputs.image }}' <<<"${_args}"
+  assert_success
+}

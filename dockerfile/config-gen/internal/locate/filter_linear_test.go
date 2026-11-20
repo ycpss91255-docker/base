@@ -12,7 +12,8 @@ import (
 // for one lookup of every key and table path of the large_tables.toml
 // fixture, and requires the total to stay within a small constant times
 // keys plus entries. A scan of every entry per lookup costs keys x entries
-// (base#1654). The test counts work, not time.
+// (base#1654). The test counts work, not time, through the examined hook
+// inside filter's loop (base#1658).
 func TestFilterWorkIsLinearOnLargeCorpus(t *testing.T) {
 	src, err := os.ReadFile(testcorpus.Glob(t, "corpus/s1/large_tables.toml")[0])
 	if err != nil {
@@ -24,8 +25,20 @@ func TestFilterWorkIsLinearOnLargeCorpus(t *testing.T) {
 		t.Fatalf("large corpus yields %d entries, want at least 1000", len(entries))
 	}
 	work := 0
+	examined = func() { work++ }
+	t.Cleanup(func() { examined = nil })
 	for _, o := range entries {
-		work += len(m.candidates(o.Path))
+		if o.Kind == Key {
+			m.Keys(o.Path)
+		} else {
+			m.Tables(o.Path)
+		}
+	}
+	// Each entry sits in its own path's bucket, so every lookup examines
+	// at least one record; a count below that is not measuring filter's
+	// loop (base#1658).
+	if work < len(entries) {
+		t.Fatalf("filter examined %d records for %d lookups, want at least %d", work, len(entries), len(entries))
 	}
 	const factor = 4
 	if limit := factor * (len(entries) + len(entries)); work > limit {

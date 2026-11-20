@@ -32,6 +32,11 @@
 #       Run actionlint as the workflow's actionlint job does: the same
 #       image pin and the same `-ignore` suppressions, both read out of the
 #       workflow so a bump there cannot leave this behind.
+#   ./script/ci/pre_pr_mirror.sh --commit-attribution
+#       Run the commit-attribution job's check over the commits a PR from
+#       HEAD would carry: script/ci/check_commit_attribution.sh over
+#       <base>..HEAD, where <base> is PRE_PR_MIRROR_BASE (the run's --base,
+#       default origin/main), base#1989.
 #   ./script/ci/pre_pr_mirror.sh --coverage-shards
 #       Print the coverage matrix CI fans out over, one `<n>/<total>` per
 #       line: compute-shards' own rule applied to the repo's CI_SHARDS
@@ -46,7 +51,8 @@
 #
 # What the plan runs, and why each gate is the one it is:
 #
-#   always            actionlint, and `just test` -- every linter of the
+#   always            actionlint, the commit-attribution check (CI puts no
+#                     `if:` on that job, base#1989), and `just test` -- every linter of the
 #                     _LINT_TOOLS table, then the whole bats suite plain.
 #                     The lint jobs and bats-fragile run subsets of
 #                     exactly that, plain, in CI. Run on every
@@ -117,6 +123,7 @@ readonly _MIRROR_WORKFLOW="${_MIRROR_ROOT}/.github/workflows/self-test.yaml"
 # recipe is read as its body in justfile.test), and requires every planned
 # command to be what _run executes.
 readonly _CMD_ACTIONLINT='./script/ci/pre_pr_mirror.sh --actionlint'
+readonly _CMD_ATTRIBUTION='./script/ci/pre_pr_mirror.sh --commit-attribution'
 readonly _CMD_TEST='just test'
 readonly _CMD_COVERAGE='./script/ci/pre_pr_mirror.sh --coverage-matrix'
 readonly _CMD_MERGE='bash ./script/test/drivers/coverage_gate.sh --merge-timings coverage-shards/timings.tsv coverage-shards/*/timings.tsv'
@@ -143,6 +150,7 @@ _table() {
   local t=$'\t'
   printf '%s\n' \
     "attested${t}actionlint${t}${_CMD_ACTIONLINT}" \
+    "attested${t}commit-attribution${t}${_CMD_ATTRIBUTION}" \
     "attested${t}shellcheck${t}${_CMD_TEST}" \
     "attested${t}doc-counts${t}${_CMD_TEST}" \
     "attested${t}lint-static${t}${_CMD_TEST}" \
@@ -220,7 +228,7 @@ _commands() {
   local gates="$1" code=0 system=0
   grep -qx code <<<"${gates}" && code=1
   grep -qx system <<<"${gates}" && system=1
-  printf '%s\n' "${_CMD_ACTIONLINT}" "${_CMD_TEST}"
+  printf '%s\n' "${_CMD_ACTIONLINT}" "${_CMD_ATTRIBUTION}" "${_CMD_TEST}"
   if (( code )); then
     printf '%s\n' "${_CMD_COVERAGE}" "${_CMD_MERGE}" "${_CMD_VERDICT}"
   fi
@@ -270,6 +278,21 @@ _actionlint() {
     [[ -n "${pat}" ]] && args+=(-ignore "${pat}")
   done < <(sed -n "s/.*-ignore[[:space:]]*'\\([^']*\\)'.*/\\1/p" "${_MIRROR_WORKFLOW}")
   docker run --rm -v "${_MIRROR_ROOT}:/repo:ro" -w /repo "${img}" "${args[@]}"
+}
+
+# _commit_attribution -- the commit-attribution job's check, over the
+# commits between PRE_PR_MIRROR_BASE (default origin/main) and HEAD, read as
+# the pull_request range CI walks (base#1989).
+_commit_attribution() {
+  local base="${PRE_PR_MIRROR_BASE:-origin/main}" base_sha head_sha
+  base_sha="$(git -C "${_MIRROR_ROOT}" rev-parse --verify --quiet "${base}^{commit}")" || {
+    printf 'pre_pr_mirror: %s does not resolve to a commit\n' "${base}" >&2
+    return 1
+  }
+  head_sha="$(git -C "${_MIRROR_ROOT}" rev-parse HEAD)"
+  (cd "${_MIRROR_ROOT}" \
+    && EVENT_NAME=pull_request BASE_SHA="${base_sha}" HEAD_SHA="${head_sha}" \
+      bash ./script/ci/check_commit_attribution.sh)
 }
 
 # _ci_shards_raw -- the CI_SHARDS value the coverage matrix is computed
@@ -390,7 +413,7 @@ _run() {
       fi
     fi
     printf '\n==> pre-PR mirror: %s\n' "${cmd}"
-    if ! (cd "${_MIRROR_ROOT}" && bash -c "${cmd}"); then
+    if ! (cd "${_MIRROR_ROOT}" && PRE_PR_MIRROR_BASE="${base}" bash -c "${cmd}"); then
       printf 'pre_pr_mirror: RED at: %s\n' "${cmd}" >&2
       return 1
     fi
@@ -408,6 +431,7 @@ main() {
     --table) _table ;;
     --plan) _plan ;;
     --actionlint) _actionlint ;;
+    --commit-attribution) _commit_attribution ;;
     --coverage-shards) _coverage_shards ;;
     --coverage-matrix) _coverage_matrix ;;
     --base) _run "${2:?--base expects a ref}" ;;
