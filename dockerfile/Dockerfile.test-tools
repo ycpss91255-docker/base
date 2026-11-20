@@ -337,7 +337,10 @@ RUN apk-retry add --no-cache \
 FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION} AS config-gen-builder
 WORKDIR /src
 COPY dockerfile/config-gen /src/
-RUN CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
+# Stamped into `config-gen version` as main.contentDigest (base#2034); empty
+# until the build passes it.
+ARG CONFIG_GEN_DIGEST=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -X main.contentDigest=${CONFIG_GEN_DIGEST}" -o /out/config-gen ./cmd/config-gen
 
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert}
 # + parallel + git + ca-certificates + kcov.
