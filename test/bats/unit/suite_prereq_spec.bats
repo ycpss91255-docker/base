@@ -447,3 +447,17 @@ _assert_only_refused() {
   run cat "${PHASE_LOG}"
   assert_output --partial "_run_tests"
 }
+
+# why: the refusal tells a bare container run how to supply each id, and
+# HOST_UID is the uid (`id -u`) while HOST_GID is the gid (`id -g`). One
+# hint naming `$(id -u|-g)` for both is not a command anyone can paste.
+@test "prereq: each missing host id's hint names its own id command (base#1423)" {
+  _single_fault uid-unset
+  assert_failure
+  assert_output --partial "HOST_UID (the uid:gid the suite hands the checkout back to; 'just test' exports it, a bare container needs -e HOST_UID=\$(id -u))"
+  rm -rf "${FAKE_ROOT}" "${PHASE_LOG}"
+  FAKE_ROOT="$(mktemp -d)"
+  _single_fault gid-unset
+  assert_failure
+  assert_output --partial "HOST_GID (the uid:gid the suite hands the checkout back to; 'just test' exports it, a bare container needs -e HOST_GID=\$(id -g))"
+}

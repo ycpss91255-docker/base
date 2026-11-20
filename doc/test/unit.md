@@ -8521,7 +8521,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (25)
+### test/bats/unit/suite_prereq_spec.bats (26)
 
 | Test | Description |
 |------|-------------|
@@ -8550,6 +8550,7 @@ runs).
 | `prereq: single fault: HOST_GID unset is refused alone (base#1423)` | - |
 | `prereq: single fault: HOST_GID empty is refused alone (base#1423)` | - |
 | `prereq: single fault: an empty tags.txt with both ids reaches the suite (base#1423)` | the control row: an empty tags.txt is "no release owed", not a fault, so with both ids set main reaches the suite. |
+| `prereq: each missing host id's hint names its own id command (base#1423)` | the refusal tells a bare container run how to supply each id, and HOST_UID is the uid (`id -u`) while HOST_GID is the gid (`id -g`). One hint naming `$(id -u\|-g)` for both is not a command anyone can paste. |
 
 ### test/bats/unit/system_paths_spec.bats (9)
 
