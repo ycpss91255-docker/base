@@ -353,3 +353,8 @@ s1571.tsv	baseline-per-row	35.0
 s1571.tsv	filter-no-fallback	33.9
 s1571.tsv	deal-by-index	29.4
 s5.tsv	gate-fuzz-fail-path	36.3
+s5b.tsv	oracle-name	27.3
+s5b.tsv	oracle-image-provision	27.4
+s5b.tsv	oracle-image-run	27.1
+s5b.tsv	oracle-count	26.9
+s5b.tsv	oracle-token	20.3
