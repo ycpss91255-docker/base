@@ -8883,7 +8883,7 @@ is where a whole-tree scan belongs (base#1075).
 | `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
 | `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
 
-### test/bats/unit/test_tools_pins_spec.bats (13)
+### test/bats/unit/test_tools_pins_spec.bats (18)
 
 The release smoke step ran fifteen probes against the image it had just
 published, and fourteen of them asserted an exit status and nothing else --
@@ -8916,6 +8916,11 @@ is the smoke step, which iterates this same roster.
 | `test-tools pins: check refuses an ARG that is not on the roster (#1012)` | There is nothing to compare against, so it refuses rather than passing over it. |
 | `test-tools pins: an unrecognised subcommand is refused and names what it does answer (#1012)` | It must not fall through to the roster, because a roster is an answer the caller would then act on. |
 | `test-tools pins: roster and check read a quoted declaration the same way (#1012)` | Quoting a build arg's default is legal, and the two halves of one accessor disagreeing about it fails a CORRECT image while naming a pin nobody could satisfy. |
+| `test-tools pins: roster carries a GOLANG_VERSION row last, with the toolchain probe (base#2023)` | base#2023 -- the builder-only ARG gets a row, after the rows already printed, with the toolchain probe. |
+| `test-tools pins: check GOLANG_VERSION accepts 1.24.3 and refuses 1.24.31 and 1.23.1 (base#2023)` | base#2023 -- agreement and the two refusals, with the pin in the message. |
+| `test-tools pins: the GOLANG_VERSION probe prints nothing without a toolchain line (base#2023)` | base#2023 -- a config-gen that prints no toolchain line yields an empty probe answer, which check refuses as a probe that did not run. |
+| `test-tools pins: a builder-only ARG no stage uses is refused as builder-only (base#2023)` | base#2023 -- the class must not hide a pin that ships in the image. |
+| `test-tools pins: an unlisted FOO_VERSION is still refused next to the builder-only class (base#2023)` | base#2023 -- an unlisted pin is still refused. |
 
 ### test/bats/unit/testtools_image_spec.bats (13)
 
