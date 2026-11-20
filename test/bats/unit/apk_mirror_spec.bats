@@ -171,7 +171,7 @@ _stages_off_the_mirror() {
       if (tolower($3) == "as") { name = $4 }
       next
     }
-    /apk add/ { if (from != want) { print name " (FROM " from ")" } }
+    /apk(-retry)? add/ { if (from != want) { print name " (FROM " from ")" } }
   ' "${DOCKERFILE}" | sort -u
 }
 
