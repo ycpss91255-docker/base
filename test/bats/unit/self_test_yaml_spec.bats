@@ -1755,7 +1755,7 @@ _builder_setups_out_of_step_with_their_consumer() {
   #
   # `bats-integration` left it with base#1573: the coverage shards run
   # every integration spec, so that job ran each one a second time.
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]'
 }
 
 # why: The coverage shards already run every integration spec (the pool in
@@ -1771,11 +1771,11 @@ _builder_setups_out_of_step_with_their_consumer() {
 
   run yaml_job_lines "${WF}" ci-rollup
   assert_success
-  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [actionlint, classify, test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, compute-shards, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]'
 
   run yaml_job_lines "${WF}" release
   assert_success
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]'
 }
 
 # why: The sharded kcov run is the primary unit gate; out of the rollup, a
@@ -2205,6 +2205,39 @@ BASE_REF=${{ github.event.merge_group.base_ref }}
 HEAD_SHA=${{ github.event.merge_group.head_sha }}
 HEAD_REF=${{ github.event.merge_group.head_ref }}
 EOF
+}
+
+# why: check_commit_attribution.sh only guards a pull request if a job runs it
+# over that pull request's range and the required check waits on that job.
+# A step whose run line only names the script (an echo of it, or the call
+# with its exit status dropped), a job that reads the wrong range, or a
+# shallow clone with no base commit to walk from would all leave an
+# attributed commit free to merge. So this pins the step's whole run command
+# by equality, its range env, the full-history checkout and the job's place
+# in ci-rollup's needs (base#1989).
+@test "self-test.yaml: a commit-attribution job runs check_commit_attribution.sh over the PR or merge_group range and gates ci-rollup (base#1989)" {
+  # Expected literals are the approved design's (design-r2 section 2): job
+  # `commit-attribution`, checkout `fetch-depth: 0`, BASE_SHA and HEAD_SHA from
+  # the pull_request fields or else the merge_group ones, and a ci-rollup need.
+  # The run command is the job's own: `bash ./script/ci/check_commit_attribution.sh`.
+  # Every step whose run line names the script is listed, so a second step
+  # that only names it would show up as an extra line.
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run // "" | test("check_commit_attribution")) | .run'
+  assert_success
+  assert_output 'bash ./script/ci/check_commit_attribution.sh'
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.run == "bash ./script/ci/check_commit_attribution.sh") | .env | to_entries | .[] | .key + "=" + .value'
+  assert_success
+  assert_output - <<'EOF'
+EVENT_NAME=${{ github.event_name }}
+BASE_SHA=${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+HEAD_SHA=${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+EOF
+  run _yaml_eval "${WF}" '.jobs["commit-attribution"].steps[] | select(.uses // "" | test("^actions/checkout@")) | .with["fetch-depth"]'
+  assert_success
+  assert_output '0'
+  run _yaml_eval "${WF}" '.jobs["ci-rollup"].needs[] | select(. == "commit-attribution")'
+  assert_success
+  assert_output 'commit-attribution'
 }
 
 # why: build-worker's merge_group_same_repo input defaults to 'false', so a
@@ -3687,7 +3720,7 @@ _lint_probe_fixture() {
   assert_success
   #
   # `bats-integration` left it with base#1573, as it left ci-rollup.
-  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, worker-selftest]'
+  assert_output --partial 'needs: [test-tools-image-amd64, test-tools-image-arm64, shellcheck, doc-counts, lint-static, mutation-roster, single-issue-pr, hadolint, bats-fragile, coverage, coverage-gate, acceptance, system, config-gen-gates, config-gen-redpath, commit-attribution, worker-selftest]'
 }
 
 @test "self-test.yaml: the release job assembles no source archive of its own (#924)" {
