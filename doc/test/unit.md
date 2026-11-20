@@ -1693,7 +1693,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (34)
+### test/bats/unit/compose_emit/blocks_spec.bats (38)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1708,6 +1708,9 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: all empty emits nothing` | caps off |
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
+| `_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)` | base#1651 -- a security_opt value with YAML syntax in it (`: `, ` #`, a leading `*` / `&` / `#`, a `"`) must parse back as that exact string, not as a map, a truncated value, an alias, an anchor or a comment. |
+| `_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)` | base#1651 -- a plain scalar also gets an implicit tag: `~` / `null` resolve to null, `true` to bool, `0755` / `1e3` / `.inf` to numbers, and compose-go then refuses the file ("security_opt.0 must be a string"). `yes` (bool) and `1:30` (sexagesimal) are YAML 1.1-only, so yq (1.2) cannot tell; those two are checked against the spec's double-quoted form. |
+| `_emit_caps_block: cap_add and cap_drop items parse back as the exact input string (base#1651)` | base#1651 -- cap_add and cap_drop are written by their own loops, so the same values (YAML syntax and implicit non-string types) must parse back as the exact input string in both lists, not only in security_opt. |
 | `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
 | `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
@@ -1722,6 +1725,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
+| `_emit_tmpfs_block: items parse back as the exact input string (base#1651)` | base#1651 -- tmpfs items are written by their own loop, so a value with YAML syntax in it or an implicit non-string type must also parse back as the exact input string, not only the caps lists. |
 | `_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids` | #496 group_add |
 | `_emit_user_build_args: empty omits; entries emit KEY: ${KEY} pairs` | build args |
 | `_logging_svc_kv: seeds from global then overlays per-service (key-level merge)` | logging merge |
@@ -9419,7 +9423,7 @@ call begin + detach
 | `wiring: the 5 full verbs call _transcript_begin (#606)` | - |
 | `wiring: run/exec/setup_tui call both _transcript_begin and _transcript_detach (#608)` | - |
 
-### test/bats/unit/triage_label_yaml_spec.bats (6)
+### test/bats/unit/triage_label_yaml_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -9429,6 +9433,11 @@ call begin + detach
 | `triage-label: a quoted operand and a multi-line array are both read` | The two spellings the first extractor silently dropped, pinned as data rather than left to the live tree -- neither is in this repo today, so nothing here would fail if the patterns regressed. A quoted operand and a multi-line array are both ordinary YAML, and both read as zero labels, which the vocabulary case passes |
 | `triage-label: every label a workflow applies is one the vocabulary defines` | The defect itself, stated as the invariant it broke. The API CREATES a label an addLabels call names when the repo has none, so a workflow applying a string outside the vocabulary does not fail -- it mints a label the doc says does not exist, on GitHub's default grey, once per issue. Deleting the label by hand cannot fix that; this is the only place the recurrence can be closed (base#1182) |
 | `triage-label: the unlabeled-issue safety net applies the intake role` | The intake role has one spelling and the rename chose it. Naming the label positively, and not merely "something in the table", is what keeps a later edit from swapping the safety net onto ready-for-agent or wontfix -- both of which are in the table and neither of which is what an unlabeled externally-filed issue is waiting for |
+| `triage-label: the safety net runs on opened, labeled and unlabeled` | The rule is "exactly one state label", and a label set changes on three events, not one. Triggering on `opened` alone never sees a state label being removed, so an issue whose last state label is taken off stays stateless for good; `labeled` alone misses that same removal. Only all three keep the net in front of every change (base#1713) |
+| `triage-label: the job is gated only on the issue being open` | The old gate asked "any label at all?" while the rule is about STATE labels, so a kind label alone (`enhancement`, set by the to-issues flow at creation) skipped the job and left the issue stateless. Which labels count is the step's business, read at run time; the job itself may only refuse a closed issue. Asserted positively, so `!labels[0]`, `labels.length == 0`, `toJSON(...) == '[]'` and a step-level gate all fail it, not just today's spelling (base#1713) |
+| `triage-label: a label set with no state label gets needs-triage, one with a state label does not` | The rule is "exactly one state label" and the roster is the doc's table, so the predicate is a count of roster names in the label set the issue carries NOW. No state label, whatever else is there (a kind label set at creation, or the last state just removed), gets the intake role; any one role from the doc -- read here, not from the step's own copy -- gets nothing. An unconditional add, an inverted gate, a counter that only looks for needs-triage and a hand-copied roster missing a role all fail one half of this (base#1713) |
+| `triage-label: needs-triage left beside another state label is removed` | The rule is "exactly one state label", and the common way to break it is moving an issue on without taking the intake role off: adding ready-for-agent while needs-triage is still set leaves two states, and an agent picking ready-for-agent work is handed an issue that is also still untriaged. needs-triage next to ANY other role from the doc's table -- read here, not from the step's own copy -- is the leftover, so the step removes it and makes no other edit; the later role is the decision (base#1713) |
+| `triage-label: a failed label read adds nothing` | The step decides from a label read, and an API error is not an answer. Reading a failed `gh api` as an empty set (`\|\| true`, `\|\| echo '[]'`) would see "no state label" on an issue that carries ready-for-agent and add needs-triage to it, breaking the very rule this net enforces. A failed read fails the step and edits nothing (base#1713) |
 
 ### test/bats/unit/tui_backend_spec.bats (30)
 
