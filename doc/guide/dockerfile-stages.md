@@ -50,7 +50,11 @@ Notes:
   `test/bats/smoke/<repo>_env.bats` see the same binaries / files a user would
   find after `docker run ... <repo>:devel`.
 - `Dockerfile.test-tools` builds the lint/test tool bundle (bats + shellcheck +
-  hadolint + kcov + yq). The downstream `devel-test` stage consumes it through
+  hadolint + kcov + yq). A tool pin may carry `sha256=<ARG>@<source>` options
+  in its `tool-pin:` marker; the version bump (`script/watch/pins.sh --set`)
+  then rewrites those checksum ARGs in the same commit, from the upstream
+  checksum file (`file:`) or, when upstream publishes none, from the
+  downloaded asset (`asset:`), as for shellcheck and hadolint. The downstream `devel-test` stage consumes it through
   the `ARG TEST_TOOLS_IMAGE` build arg, which has **no default**: `build.sh`
   passes the version-scoped `test-tools:<base-version>` it builds into the host
   Docker daemon, and CI passes `ghcr.io/ycpss91255-docker/test-tools:<version>`
