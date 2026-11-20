@@ -103,23 +103,26 @@ _mini() {
   assert_output --partial "EXPECT row with no fixture: ghost"
 }
 
-# why: the divergent class is today's known TOML 1.1 gap and nothing
-# else; on any other name it would excuse a real parity break. Exactly the
-# offending row is reported, the toml11_* one is not.
-@test "partition: bridge-refused-go-accepted on a non-toml11_* fixture fails" {
-  _mini a toml11_ok
-  printf 'a\tbridge-refused-go-accepted\ntoml11_ok\tbridge-refused-go-accepted\n' > "${S}/EXPECT"
+# why: config-gen runs internal/gate before decode, so a TOML 1.1-only
+# fixture is refused by both sides and the divergent class
+# bridge-refused-go-accepted is retired (base#1936); a row still carrying
+# it, even on a toml11_* name, would claim a divergence that no longer
+# exists. The row is malformed, and its fixture is left with no row.
+@test "partition: a bridge-refused-go-accepted row is malformed" {
+  _mini toml11_ok
+  printf 'toml11_ok\tbridge-refused-go-accepted\n' > "${S}/EXPECT"
   run _expect_partition "${S}/c" "${S}/EXPECT"
   assert_failure
-  assert_output "bridge-refused-go-accepted on a non-toml11_* fixture: a"
+  assert_output "EXPECT row malformed: \$'toml11_ok\\tbridge-refused-go-accepted'
+fixture with no EXPECT row: toml11_ok"
 }
 
 # why: the control for the three refusals above: every class on a
 # matching fixture set passes silently, so their failures are the rule
 # firing and not a check that refuses everything.
 @test "partition: one well-formed row per fixture passes" {
-  _mini a b toml11_ok
-  printf 'a\tparity\nb\tparity-refused\ntoml11_ok\tbridge-refused-go-accepted\n' > "${S}/EXPECT"
+  _mini a b
+  printf 'a\tparity\nb\tparity-refused\n' > "${S}/EXPECT"
   run _expect_partition "${S}/c" "${S}/EXPECT"
   assert_success
   assert_output ""
