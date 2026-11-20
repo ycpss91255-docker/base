@@ -1339,13 +1339,14 @@ _dispatch_needs_prev_release() {
 #   .prev-release/tags.txt is only demanded of a dispatch that runs the
 #   spec reading it (_dispatch_needs_prev_release replays this same
 #   dispatch), so a lint or single-spec run elsewhere is not refused for a
-#   fixture it never reads.
+#   fixture it never reads. The file must exist but may be empty:
+#   prepare-prev-release.sh writes it empty when no release is owed.
 _check_suite_prerequisites() {
   local _root="${1:-${REPO_ROOT}}"
   local _system="${2:-0}"
   local -a _missing=()
   if [[ "${_system}" != "1" ]] && _dispatch_needs_prev_release "${COVERAGE:-0}" \
-     && [[ ! -s "${_root}/.prev-release/tags.txt" ]]; then
+     && [[ ! -f "${_root}/.prev-release/tags.txt" ]]; then
     _missing+=(".prev-release/tags.txt (run script/test/prepare-prev-release.sh on the host, or start the suite with 'just test')")
   fi
   local _var
