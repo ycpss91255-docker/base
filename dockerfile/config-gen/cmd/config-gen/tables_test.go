@@ -325,6 +325,49 @@ func TestTablesTOML11FormIsOneGateFrame(t *testing.T) {
 	}
 }
 
+// Each of the other five TOML 1.1-only forms internal/gate owns (base#1850)
+// is refused the same way as the `\e` escape: exit 1, nothing on stdout,
+// one `config_gen_toml_gate_refused` frame naming the `--name` label, the
+// 1-based line and byte column of the offending byte, and the gate's own
+// sentence for the form (base#1936). Positions are counted by hand:
+// `v = "\x41"` -> `v ' ' = ' ' "` is 5 bytes, `\` is byte 6;
+// `opts = {` -> 8 bytes, the LF is byte 9; `deps = {db = 1,}` -> the
+// comma is byte 15; `at = 07:30` -> `a t ' ' = ' '` is 5 bytes, `0` is
+// byte 6; the BOM is the file's first byte.
+func TestTablesEveryTOML11FormIsOneGateFrame(t *testing.T) {
+	for _, tc := range []struct {
+		name, src, line, col, text string
+	}{
+		{"escape_x", "[env]\nv = \"\\x41\"\n", "2", "6", `escape sequence \x is not TOML 1.0`},
+		{"inline_newline", "[srv]\nopts = {\n  a = 1 }\n", "2", "9", "line ending inside an inline table is not TOML 1.0"},
+		{"inline_trailing_comma", "[app]\ndeps = {db = 1,}\n", "2", "15", "trailing comma in an inline table is not TOML 1.0"},
+		{"time_no_seconds", "[sched]\nat = 07:30\n", "2", "6", "time without seconds is not TOML 1.0"},
+		{"bom", "\xEF\xBB\xBF[a]\n", "1", "1", "leading byte order mark is not TOML 1.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			label := tc.name + ".toml"
+			path := filepath.Join(t.TempDir(), "f.toml")
+			if err := os.WriteFile(path, []byte(tc.src), 0o600); err != nil {
+				t.Fatalf("write %s: %v", path, err)
+			}
+			rc, stdout, stderr := cli(t, "tables", "--name", label, path)
+			if rc != 1 {
+				t.Fatalf("config-gen tables exited %d, want 1 (stdout %q, stderr %q)", rc, stdout, stderr)
+			}
+			if len(stdout) != 0 {
+				t.Fatalf("config-gen tables stdout = %q, want empty", stdout)
+			}
+			f := refusal(t, stderr, "config_gen_toml_gate_refused", label)
+			if f[4] != tc.line || f[5] != tc.col {
+				t.Fatalf("frame line, col = %q, %q, want %s, %s", f[4], f[5], tc.line, tc.col)
+			}
+			if f[7] != tc.text {
+				t.Fatalf("frame text = %q, want %q", f[7], tc.text)
+			}
+		})
+	}
+}
+
 // An input that is not a regular file -- a directory, a FIFO with no
 // writer, the character device /dev/null, or a listening unix socket --
 // makes `config-gen tables` exit 1 with nothing on stdout and exactly one
