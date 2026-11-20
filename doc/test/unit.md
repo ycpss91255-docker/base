@@ -5891,7 +5891,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (35)
+### test/bats/unit/publish_worker_yaml_spec.bats (38)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -5965,6 +5965,9 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)` | base#1646 -- :latest is the most-consumed tag; a prerelease ref (rc, beta) must publish only its pinned tag and say so. |
 | `publish-worker.yaml: a release ref with is_latest true publishes the pinned tag and :latest, both suffixed (#1646)` | base#1646 -- a final release ref keeps moving :latest beside its pinned tag, and both carry the caller's suffix. |
 | `publish-worker.yaml: a failing release-ref.sh fails the step and writes no tags output (#1646)` | base#1646 -- a classifier that fails (release-ref.sh exits 2 for a ref that is neither a release nor a prerelease) must FAIL the step, not read as "not a prerelease" and fall through to moving :latest. |
+| `publish-worker guide: is_latest true on a non-version tag fails the classifier step (base#1656)` | base#1656 -- the refusal above is intended, so a caller must be able to read it in the guide before it stops a release: one line of the guide's "Tag contract" section names `is_latest: true`, a ref that is "not a version tag", and says the step fails. The step's name is read out of the workflow (the merge step that runs release-ref.sh), so renaming the step without the guide fails here. Every bare ref the line gives as an example is run through the real step with is_latest true: it must fail with release-ref.sh's own "is not a version tag" refusal. A copy of the guide whose line says the step still moves :latest, or names the step without saying it fails, is rejected. |
+| `publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)` | base#1656 -- the merge job holds `packages: write` and pushes nothing through git, so no checkout in it may leave the job token in the checked-out repo's git config. actions/checkout's own action.yml defaults `persist-credentials` to true, so only an explicit `false` turns it off. Steps are selected by `uses`, not by name: a renamed step or a second checkout added to the merge job later is held to the same rule. |
+| `publish-worker.yaml: the merge checkout's sparse path covers every .worker-base script a merge step runs (base#1656)` | base#1656 -- the merge job checks base out SPARSE into .worker-base, so a merge step that runs a .worker-base script the sparse path leaves out finds no file and fails only on a real tag push. _merge_sparse_misses <workflow> prints every .worker-base/<path> a merge step runs that the merge checkout's sparse-checkout list does not name, and fails when there is one. The real workflow must pass; a copy whose sparse path names another script must fail and name release-ref.sh, the script "Resolve tags" runs (a worked literal, not read back through the check). |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
