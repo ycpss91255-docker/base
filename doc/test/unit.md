@@ -2812,7 +2812,7 @@ downgraded in silence.
 | `_collect_deploy_binds: duplicate basename across components fails loud (tunable-manifest)` | basename collision |
 | `_collect_deploy_binds: propagates a malformed manifest failure (tunable-manifest)` | fail propagation |
 
-### test/bats/unit/deploy_spec.bats (80)
+### test/bats/unit/deploy_spec.bats (81)
 
 Covers the self-contained field-deploy generator (#832; ADR-3 amended by
 ADR-00000023). Deploy produces an output FOLDER run via a fully-resolved,
@@ -2878,6 +2878,7 @@ refused before any build or bundle step.
 | `_report_config_components: says nothing about presets when the repo has no selector (#826)` | silence when there is no selector |
 | `_generate_deploy_bundle: dry-run plans build (versioned image) + save + xz + install (#832)` | bundle plan |
 | `_generate_deploy_bundle: aborts and writes nothing when mktemp -d fails (base#1652)` | a failed mktemp must abort before any path is built from an empty dir |
+| `_generate_deploy_bundle: aborts and writes nothing when mktemp -d prints nothing (base#1657)` | mktemp can exit 0 yet print nothing; an empty work dir must abort too |
 | `_generate_deploy_bundle: SIGTERM mid-build removes the work dir (base#1662)` | a signal must not leak the bundle work dir |
 | `_generate_deploy_bundle: dry-run builds from the baked Dockerfile when [environment] is set (#832/#503)` | env-bake build |
 | `_generate_deploy_bundle: dry-run plans a docker cp per tunable-manifest path (#833)` | tunable extract |
@@ -5891,7 +5892,7 @@ fallback is present.
 | `prune.sh --help mentions --worktree-orphans (#388)` | - |
 | `prune.sh aborts on a failing pre-prune hook and skips docker prune (#690)` | - |
 
-### test/bats/unit/publish_worker_yaml_spec.bats (34)
+### test/bats/unit/publish_worker_yaml_spec.bats (38)
 
 Structural assertions for the `.github/workflows/publish-worker.yaml`
 reusable `call-publish` workflow (foundational image repos push their
@@ -5961,9 +5962,13 @@ acquiring it, and to any other scope beside it
 | `publish-worker.yaml: the merge job's runner follows the publish matrix, not a fixed arch (#1214)` | An arm64-only caller -- `platforms: linux/arm64`, which this worker supports and which a multi-arch base image repo uses -- builds and pushes on `ubuntu-24.04-arm`. A merge job pinned to `ubuntu-latest` can execute none of the digests that run produced, so the selection refuses, no tag is attached, and a supported configuration stops publishing altogether. The runner has to follow the matrix the caller asked for (#1214). |
 | `publish-worker.yaml: an arm64-only call verifies on an arm64 runner (#1214)` | The structural half above says the runner is derived; this says the derivation lands on a runner that can RUN what the caller asked for. An arm64-only call must put the merge job on the arm64 runner, or the smoke step has nothing it can execute and the publish fails for a configuration that worked before the gate existed (#1214). |
 | `publish-worker.yaml: nothing in the merge job conditions whether it publishes (#1171)` | base#1171's invariant, stated as behaviour rather than left in prose: every run the trigger starts has a reason to publish and the publish is unconditional. An `if:` on any merge step would let a run reach the end having published nothing while still holding its concurrency slot, which is the eviction that issue removed. The job's own `if:` is held to the same-repo guard the self-hosted rule requires of its derived runner and to nothing else, so a condition on WHETHER to publish cannot arrive there either. |
+| `publish-worker.yaml: the merge job checks out the release-ref classifier at the worker sha before Resolve tags (base#1659)` | base#1659 -- the Resolve tags step runs `bash .worker-base/script/ci/release-ref.sh`, and the merge job has no caller checkout, so that file exists only because one checkout step fetches it from the worker repo at the worker's own sha before Resolve tags runs. The resolve-tags harness (_resolve_tags_for) builds that path itself in scratch, so this spec reads the checkout step directly. The step is picked by content (actions/checkout into .worker-base), not by its display name. |
 | `publish-worker.yaml: a prerelease ref with is_latest true publishes only the pinned tag (#1646)` | base#1646 -- :latest is the most-consumed tag; a prerelease ref (rc, beta) must publish only its pinned tag and say so. |
 | `publish-worker.yaml: a release ref with is_latest true publishes the pinned tag and :latest, both suffixed (#1646)` | base#1646 -- a final release ref keeps moving :latest beside its pinned tag, and both carry the caller's suffix. |
 | `publish-worker.yaml: a failing release-ref.sh fails the step and writes no tags output (#1646)` | base#1646 -- a classifier that fails (release-ref.sh exits 2 for a ref that is neither a release nor a prerelease) must FAIL the step, not read as "not a prerelease" and fall through to moving :latest. |
+| `publish-worker guide: is_latest true on a non-version tag fails the classifier step (base#1656)` | base#1656 -- the refusal above is intended, so a caller must be able to read it in the guide before it stops a release: one line of the guide's "Tag contract" section names `is_latest: true`, a ref that is "not a version tag", and says the step fails. The step's name is read out of the workflow (the merge step that runs release-ref.sh), so renaming the step without the guide fails here. Every bare ref the line gives as an example is run through the real step with is_latest true: it must fail with release-ref.sh's own "is not a version tag" refusal. A copy of the guide whose line says the step still moves :latest, or names the step without saying it fails, is rejected. |
+| `publish-worker.yaml: every checkout in the merge job drops its credentials (base#1656)` | base#1656 -- the merge job holds `packages: write` and pushes nothing through git, so no checkout in it may leave the job token in the checked-out repo's git config. actions/checkout's own action.yml defaults `persist-credentials` to true, so only an explicit `false` turns it off. Steps are selected by `uses`, not by name: a renamed step or a second checkout added to the merge job later is held to the same rule. |
+| `publish-worker.yaml: the merge checkout's sparse path covers every .worker-base script a merge step runs (base#1656)` | base#1656 -- the merge job checks base out SPARSE into .worker-base, so a merge step that runs a .worker-base script the sparse path leaves out finds no file and fails only on a real tag push. _merge_sparse_misses <workflow> prints every .worker-base/<path> a merge step runs that the merge checkout's sparse-checkout list does not name, and fails when there is one. The real workflow must pass; a copy whose sparse path names another script must fail and name release-ref.sh, the script "Resolve tags" runs (a worked literal, not read back through the check). |
 
 ### test/bats/unit/readme_file_table_spec.bats (4)
 
