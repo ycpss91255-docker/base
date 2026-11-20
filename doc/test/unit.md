@@ -8521,7 +8521,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (18)
+### test/bats/unit/suite_prereq_spec.bats (25)
 
 | Test | Description |
 |------|-------------|
@@ -8543,6 +8543,13 @@ runs).
 | `prereq: every coverage route of main --ci refuses a missing host id before its runner (base#1423)` | the coverage dispatches leave main through their own branches (COVERAGE_PATH, COVERAGE_LOCAL_JOBS, a shard, the serial run), and the coverage routing specs stand in for the check, so a main that skipped it on any one of those routes would pass them. Each route is driven here with HOST_GID missing and must be refused by that name before its runner starts. |
 | `prereq: a coverage route running the prev-release spec refuses a missing fixture (base#1423)` | the fixture half on the coverage routes that run the prev-release spec: the whole-suite coverage run and a COVERAGE_PATH naming that spec are refused for tags.txt before their runner starts. |
 | `prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)` | the system exemption covers the fixture only; the host ids are still demanded. |
+| `prereq: single fault: tags.txt absent is refused alone (base#1423)` | the cases above mostly remove several prerequisites at once, so a check that tested the wrong thing for one of them (-e instead of -f on tags.txt, -v instead of a non-empty test on an id) could hide behind another fault in the same run. Each row below has exactly one fault, everything else valid, through the plain `main --ci` entry point. |
+| `prereq: single fault: tags.txt a directory is refused alone (base#1423)` | - |
+| `prereq: single fault: HOST_UID unset is refused alone (base#1423)` | - |
+| `prereq: single fault: HOST_UID empty is refused alone (base#1423)` | - |
+| `prereq: single fault: HOST_GID unset is refused alone (base#1423)` | - |
+| `prereq: single fault: HOST_GID empty is refused alone (base#1423)` | - |
+| `prereq: single fault: an empty tags.txt with both ids reaches the suite (base#1423)` | the control row: an empty tags.txt is "no release owed", not a fault, so with both ids set main reaches the suite. |
 
 ### test/bats/unit/system_paths_spec.bats (9)
 

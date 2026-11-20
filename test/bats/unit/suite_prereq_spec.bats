@@ -365,3 +365,85 @@ _seed_isolated_tags() {
   assert_output --partial "HOST_UID"
   refute_output --partial "tags.txt"
 }
+
+# _single_fault <fault>: drive `main --ci` of the isolated checkout with
+# everything valid (a non-empty tags.txt, HOST_UID=1000, HOST_GID=1000)
+# except the one <fault>: tags-absent, tags-dir, uid-unset, uid-empty,
+# gid-unset, gid-empty, or tags-empty (a fault that is not one).
+_single_fault() {
+  local -a _ids=(HOST_UID=1000 HOST_GID=1000)
+  case "$1" in
+    tags-absent) ;;
+    tags-dir) mkdir -p "${FAKE_ROOT}/.prev-release/tags.txt" ;;
+    tags-empty)
+      mkdir -p "${FAKE_ROOT}/.prev-release"
+      : > "${FAKE_ROOT}/.prev-release/tags.txt" ;;
+    *) _seed_isolated_tags ;;
+  esac
+  case "$1" in
+    uid-unset) _ids=(HOST_GID=1000) ;;
+    uid-empty) _ids=(HOST_UID= HOST_GID=1000) ;;
+    gid-unset) _ids=(HOST_UID=1000) ;;
+    gid-empty) _ids=(HOST_UID=1000 HOST_GID=) ;;
+  esac
+  _main_ci "${_ids[@]}" --
+}
+
+# _assert_only_refused <name>: the refusal names <name> and none of the
+# other prerequisites, and no phase ran.
+_assert_only_refused() {
+  local _other
+  assert_failure
+  assert_output --partial "ci_missing_prerequisite"
+  assert_output --partial "$1"
+  for _other in .prev-release/tags.txt HOST_UID HOST_GID; do
+    [[ "${_other}" == "$1" ]] && continue
+    refute_output --partial "${_other}"
+  done
+  assert [ ! -e "${PHASE_LOG}" ]
+}
+
+# why: the cases above mostly remove several prerequisites at once, so a
+# check that tested the wrong thing for one of them (-e instead of -f on
+# tags.txt, -v instead of a non-empty test on an id) could hide behind
+# another fault in the same run. Each row below has exactly one fault,
+# everything else valid, through the plain `main --ci` entry point.
+@test "prereq: single fault: tags.txt absent is refused alone (base#1423)" {
+  _single_fault tags-absent
+  _assert_only_refused .prev-release/tags.txt
+}
+
+@test "prereq: single fault: tags.txt a directory is refused alone (base#1423)" {
+  _single_fault tags-dir
+  _assert_only_refused .prev-release/tags.txt
+}
+
+@test "prereq: single fault: HOST_UID unset is refused alone (base#1423)" {
+  _single_fault uid-unset
+  _assert_only_refused HOST_UID
+}
+
+@test "prereq: single fault: HOST_UID empty is refused alone (base#1423)" {
+  _single_fault uid-empty
+  _assert_only_refused HOST_UID
+}
+
+@test "prereq: single fault: HOST_GID unset is refused alone (base#1423)" {
+  _single_fault gid-unset
+  _assert_only_refused HOST_GID
+}
+
+@test "prereq: single fault: HOST_GID empty is refused alone (base#1423)" {
+  _single_fault gid-empty
+  _assert_only_refused HOST_GID
+}
+
+# why: the control row: an empty tags.txt is "no release owed", not a
+# fault, so with both ids set main reaches the suite.
+@test "prereq: single fault: an empty tags.txt with both ids reaches the suite (base#1423)" {
+  _single_fault tags-empty
+  assert_success
+  refute_output --partial "ci_missing_prerequisite"
+  run cat "${PHASE_LOG}"
+  assert_output --partial "_run_tests"
+}
