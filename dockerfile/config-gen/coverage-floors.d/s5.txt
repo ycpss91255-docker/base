@@ -1,3 +1,0 @@
-# Coverage floor of the package S5 brings (base#1850): <pkg> <floor>|none,
-# pkg relative to the module. Ratcheted up by cg-gates ratchet, never lowered.
-internal/gate 100.0

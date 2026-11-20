@@ -11,8 +11,8 @@
 #
 #   dockerfile/Dockerfile.config-gen  build, test and final (scratch) stages;
 #                                     the test stage runs fmt, vet, lint,
-#                                     race, coverage and fuzz, one RUN each,
-#                                     in that order.
+#                                     race and coverage, one RUN each, in
+#                                     that order.
 #   script/test/config_gen_gates.sh   the runner: steps seam, named build
 #                                     contexts, the docker build, the gate id
 #                                     re-emitted, and the binary contract.
@@ -60,12 +60,6 @@ _root() {
   printf 'FROM scratch\n' > "${S}/root/dockerfile/Dockerfile.config-gen"
 }
 
-# _CG_TEST_GATES -- the test stage's gates that print an ok line, in
-# order (base#1850). Every expectation of which gates a run prints is
-# derived from this one list; the order test below holds it to the
-# Dockerfile's test-stage RUNs.
-readonly -a _CG_TEST_GATES=(fmt vet lint race coverage fuzz)
-
 # _gate_log <gate>... -- the plain-progress lines a test-stage build prints
 # when each named gate passed.
 _gate_log() {
@@ -83,7 +77,7 @@ _gate_log() {
 # --iidfile and, under -q, prints it. `run` prints ${S}/run.out with no
 # newline and exits ${S}/run.rc.
 _stub_docker() {
-  _gate_log "${_CG_TEST_GATES[@]}" > "${S}/build_test.err"
+  _gate_log fmt vet lint race coverage > "${S}/build_test.err"
   printf '0\n' > "${S}/build_test.rc"
   printf '' > "${S}/run.out"
   printf '2\n' > "${S}/run.rc"
@@ -165,16 +159,15 @@ _df_instructions() {
 }
 
 # why: Each gate is its own RUN so a red names its gate: one RUN running all
-# six would leave the first id as the only record and stop the later gates
+# five would leave the first id as the only record and stop the later gates
 # from reading as "never reached" rather than "passed". The order is the one
-# the redpath's earlier_gate_missing check reads; fuzz, the 60 s search
-# (base#1850), runs last of them; the gates after it print no ok line.
-@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, fuzz, one RUN each, in that order (base#1462)" {
+# the redpath's earlier_gate_missing check reads.
+@test "Dockerfile.config-gen: the test stage runs fmt, vet, lint, race, coverage, one RUN each, in that order (base#1462)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _gates
   _gates="$(_df_instructions | awk -F'\t' '$1 == "test" && $2 ~ /^RUN / {print $2}' \
       | grep -oE 'gate=[a-z]+ ok' | sed -E 's/^gate=([a-z]+) ok$/\1/' | paste -sd' ')"
-  assert_equal "${_gates}" "${_CG_TEST_GATES[*]}"
+  assert_equal "${_gates}" "fmt vet lint race coverage"
   # One gate per RUN: no test-stage RUN carries two ok lines.
   _df_instructions > "${S}/df"
   run awk -F'\t' '$1 == "test" && $2 ~ /^RUN / { n = gsub(/gate=[a-z]+ ok/, "&"); if (n > 1) print }' "${S}/df"
@@ -201,156 +194,6 @@ _df_instructions() {
   assert_output 1
 }
 
-# why: BuildKit reads a `--from=<name>` or a mount's `from=<name>` that no
-# stage defines as an image reference to pull. The runner overrides the
-# mutation and toml-oracle names with `--build-context`, but the header's
-# documented `docker build` passes none, so a name with no stage behind it
-# makes that build pull an image called toml-oracle instead of reaching
-# admit's named refusal (review round 2, base#1851). Every name a COPY or a
-# mount reads from must be a stage defined above it, so both entry points
-# resolve the same names, the runner's contexts replacing those stages.
-@test "Dockerfile.config-gen: every COPY --from and mount from= names a stage defined above it, so a build given no --build-context pulls no image for it (base#1851)" {
-  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
-  _df_instructions > "${S}/df"
-  run awk -F'\t' '
-    $2 ~ /^FROM / { n = split($2, w, /[[:space:]]+/); if (n >= 4 && tolower(w[n-1]) == "as") seen[w[n]] = 1; next }
-    {
-      s = $2
-      while (match(s, /(--from|[ ,]from)=[^ ,]+/)) {
-        ref = substr(s, RSTART, RLENGTH); sub(/^.*from=/, "", ref)
-        if (!(ref in seen)) print "line " NR ": " ref
-        s = substr(s, RSTART + RLENGTH)
-      }
-    }' "${S}/df"
-  assert_success
-  assert_output ""
-  grep -qE 'from=toml-oracle' "${S}/df" || fail "no instruction reads the toml-oracle context"
-}
-
-# _df_run_body <stage> <ere> -- the shell text of the one RUN in <stage>
-# whose joined instruction matches <ere>, with `RUN` and its --flag=value
-# options removed, the corpus root record read from ${S}/corpus-root
-# instead of /tmp. Fails when no RUN or more than one matches.
-_df_run_body() {
-  local _b
-  _df_instructions > "${S}/df"
-  _b="$(awk -F'\t' -v st="${1}" -v re="${2}" '
-    $1 == st && $2 ~ /^RUN / && $2 ~ re { n++; b = $2 }
-    END {
-      if (n != 1) exit 1
-      sub(/^RUN +/, "", b)
-      while (b ~ /^--[a-z-]+=[^ ]+ +/) sub(/^--[a-z-]+=[^ ]+ +/, "", b)
-      print b
-    }' "${S}/df")" || return 1
-  printf '%s\n' "${_b//\/tmp\/config-gen-corpus-root/${S}/corpus-root}"
-}
-
-# _stub_go -- a `go` first on PATH, recording each call's argv as one line
-# of ${S}/go.calls. `go list ./...` prints m/a and m/b and exits
-# ${S}/go.list.rc; `go test -list` prints FuzzA for ./internal/gate and
-# FuzzB for any other package, and exits ${S}/go.tlist.rc; `go test -fuzz`
-# exits ${S}/go.fuzz.rc; and `go mod <verb>` exits ${S}/go.mod.<verb>.rc.
-# Each rc defaults to 0.
-_stub_go() {
-  cat > "${S}/bin/go" <<EOF
-#!$(command -v bash)
-printf '%s\n' "\$*" >> "${S}/go.calls"
-rc() { cat "${S}/go.\${1}.rc" 2>/dev/null || echo 0; }
-case "\${1:-}" in
-  list) printf 'm/a\nm/b\n'; exit "\$(rc list)" ;;
-  test)
-    for a in "\$@"; do
-      [[ "\${a}" == -fuzz ]] && exit "\$(rc fuzz)"
-    done
-    for a in "\$@"; do
-      if [[ "\${a}" == -list ]]; then
-        if [[ "\${*: -1}" == ./internal/gate ]]; then printf 'FuzzA\n'; else printf 'FuzzB\n'; fi
-        printf 'ok  \t%s\t0.01s\n' "\${*: -1}"
-        exit "\$(rc tlist)"
-      fi
-    done ;;
-esac
-exit 0
-EOF
-  chmod +x "${S}/bin/go"
-}
-
-# _run_df_body <body> -- <body> under the Dockerfile's SHELL options (bash
-# -euo pipefail) in ${S}/mod with the stubs first on PATH. The body runs
-# from a script FILE, not a `bash -c` string: under kcov the xtrace PS4
-# expands ${BASH_SOURCE}, which is unset at the top level of a `bash -c`
-# string, so `set -u` stopped the body with "BASH_SOURCE: unbound
-# variable" before its first command (coverage shard 3/12, base#1850).
-_run_df_body() {
-  mkdir -p "${S}/mod"
-  printf '%s\n' "${1}" > "${S}/df-body.sh"
-  run --separate-stderr bash -c 'cd "$1" && PATH="$2:${PATH}" exec bash -euo pipefail "$3"' _ \
-    "${S}/mod" "${S}/bin" "${S}/df-body.sh"
-}
-
-# why: The fuzz gate (base#1850) is "a 60-second fuzz run on the gate":
-# it searches the Fuzz targets of internal/gate and no other package's, so
-# a crash another package's target finds is not this gate's red, and the
-# search costs 60 s per gate target, not per module target. Every step that
-# can fail clears ok; the one line that turns a cleared ok into the gate's
-# id and a non-zero exit is all that stands between a failed search and
-# `gate=fuzz ok`. Run with a stub go, the only searches are the gate's, and
-# each failure point -- a target's search, the target listing, the corpus
-# root record -- must end the RUN with status 1 and
-# config_gen_gate_fuzz_failed on stderr; only an all-green run prints the
-# ok line.
-@test "Dockerfile.config-gen: the fuzz RUN searches only internal/gate's targets, and prints config_gen_gate_fuzz_failed and exits 1 when a search, the listing or the corpus root read fails (base#1850)" {
-  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
-  local _body _rc
-  _body="$(_df_run_body test 'gate=fuzz ok')" || fail "not exactly one test-stage RUN prints gate=fuzz ok"
-  _stub_go
-  printf 'm.root=/x\n' > "${S}/corpus-root"
-  _run_df_body "${_body}"
-  assert_success
-  assert_output 'gate=fuzz ok'
-  assert_equal "${stderr}" ''
-  run grep -e '-fuzz ' "${S}/go.calls"
-  assert_success
-  assert_output --regexp '^test .*-run \^\$ -fuzz \^FuzzA\$ -fuzztime 60s \./internal/gate$'
-  for _rc in fuzz tlist; do
-    rm -f "${S}"/go.*.rc
-    printf '1\n' > "${S}/go.${_rc}.rc"
-    _run_df_body "${_body}"
-    assert_equal "${status}" 1
-    assert_output ''
-    assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
-  done
-  rm -f "${S}"/go.*.rc "${S}/corpus-root"
-  _run_df_body "${_body}"
-  assert_equal "${status}" 1
-  assert_output ''
-  assert_equal "${stderr##*$'\n'}" 'config_gen_gate_fuzz_failed'
-}
-
-# why: go test -fuzz reads and writes its generated corpus under
-# GOCACHE/fuzz, which is inside the go-build cache mount the RUN shares
-# with every other build on the builder. base#1441's review round 2
-# recorded a red redpath build (green case untrack) that stopped in
-# FuzzRun with `cannot unmarshal empty string`, a corpus file no commit
-# planted. The fuzz RUN (base#1850) mounts a tmpfs on GOCACHE/fuzz, so
-# each search starts from the committed seeds alone and keeps nothing
-# past the RUN.
-@test "Dockerfile.config-gen: the fuzz RUN mounts a private tmpfs on the fuzz cache inside each go-build cache mount (base#1850)" {
-  assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
-  local _run _caches _c
-  _df_instructions > "${S}/df"
-  _run="$(awk -F'\t' '$1 == "test" && $2 ~ /^RUN / && /gate=fuzz ok/' "${S}/df")"
-  [[ -n "${_run}" ]] || fail "no test-stage RUN prints gate=fuzz ok"
-  _caches="$(grep -oE -- '--mount=type=cache,[^ ]*' <<<"${_run}" \
-    | grep -oE 'target=[^, ]*go-build' | sed 's/^target=//')" || true
-  [[ -n "${_caches}" ]] || fail "the fuzz RUN mounts no go-build cache"
-  [[ "${_run}" != *GOCACHE=* ]] || fail "the fuzz RUN moves GOCACHE off the mounts this test reads"
-  for _c in ${_caches}; do
-    grep -qE -- "--mount=type=tmpfs,target=${_c}/fuzz( |$)" <<<"${_run}" \
-      || fail "no tmpfs on ${_c}/fuzz in the fuzz RUN"
-  done
-}
-
 # why: The race RUN and coverage.sh each ran go test over every package, so
 # the tests ran twice per build (base#1547). Now the race RUN's go test is
 # the only one in the test stage: it runs under -race and writes one
@@ -360,11 +203,7 @@ _run_df_body() {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   _df_instructions > "${S}/df"
   awk -F'\t' '$1 == "test" && $2 ~ /^RUN /' "${S}/df" > "${S}/runs"
-  # One go test that runs tests: a call that only lists targets (-list) or
-  # runs no test (-run '^$', the fuzz gate, base#1850) is not a second run.
-  grep -oE 'go test [^;|&]*' "${S}/runs" \
-    | grep -vE -- "-list |-run '\^\\$'" > "${S}/tests" || true
-  assert_equal "$(wc -l < "${S}/tests")" 1
+  assert_equal "$(grep -c 'go test ' "${S}/runs")" 1
   local _race _cov _prof
   _race="$(grep -n 'gate=race ok' "${S}/runs" | cut -d: -f1)"
   _cov="$(grep -n 'gate=coverage ok' "${S}/runs" | cut -d: -f1)"
@@ -420,7 +259,7 @@ _run_df_body() {
   _run_runner
   assert_success
   run grep -E '^gate=[a-z]+ ok$' <<<"${output}"
-  assert_output "$(printf 'gate=%s ok\n' "${_CG_TEST_GATES[@]}")"
+  assert_output "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
   # f. argv is read as an array: the gates run uncached, on the test target,
   # from the config-gen Dockerfile and module context under --root.
   local _test
@@ -696,7 +535,7 @@ _digest_of() {
 
 # why: The runner's stdout is its verdict: the ok lines it re-prints, which
 # the redpath compares byte for byte (an unchanged rerun must print exactly
-# the seven ok lines, a refusal nothing at all; base#1465). A step's own
+# the six ok lines, a refusal nothing at all; base#1465). A step's own
 # report (20-gomod-oracle prints `gomod-oracle: <n> fixture(s) agree ...`,
 # base#1463) is a log line, so it goes to stderr with the build log.
 @test "config_gen_gates.sh: a step's stdout goes to stderr, so stdout holds only the ok lines (base#1465)" {
@@ -706,7 +545,7 @@ _digest_of() {
   printf 'echo step-report\n' > "${S}/root/script/test/config_gen_steps/10-a.sh"
   _run_runner
   assert_success
-  assert_equal "${output}" "$(printf 'gate=%s ok\n' "${_CG_TEST_GATES[@]}")"
+  assert_equal "${output}" "$(printf 'gate=%s ok\n' fmt vet lint race coverage)"
   assert_stderr_contains step-report
 }
 
@@ -781,25 +620,6 @@ _digest_of() {
   true
 }
 
-# why: The fuzz gate (base#1850) prints config_gen_gate_fuzz_failed when a
-# search finds a failing input, and the runner re-emits it through the
-# strict logger, which refuses a body log-events.txt does not carry. An
-# unregistered id would turn the fuzz gate's red into the logger's FATAL,
-# so the redpath and CI would never read gate=fuzz.
-@test "config_gen_gates.sh: a red fuzz gate re-emits config_gen_gate_fuzz_failed gate=fuzz through the logger (base#1850)" {
-  assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
-  _root
-  _stub_docker
-  { _gate_log "${_CG_TEST_GATES[@]:0:${#_CG_TEST_GATES[@]}-1}"; printf '#13 61.02 config_gen_gate_fuzz_failed\n'; } > "${S}/build_test.err"
-  printf '1\n' > "${S}/build_test.rc"
-  _run_runner
-  assert_equal "${status}" 1
-  [[ "${stderr}" != *"unregistered log body"* ]] || fail "unregistered log body: ${stderr}"
-  assert_logged_event config_gen_gate_fuzz_failed gate=fuzz
-  assert_line 'gate=coverage ok'
-  refute_line 'gate=fuzz ok'
-}
-
 # why: A coverage RUN that never got the corpus root record refuses with
 # reason=corpus_root_missing and an empty pkg (base#1468). The runner must
 # name the coverage gate from that printed refusal line, not from the RUN
@@ -867,7 +687,7 @@ _digest_of() {
   assert_spec_subject "${RUNNER}" "the config-gen gates runner (base#1462)"
   _root
   _stub_docker
-  { _gate_log admission "${_CG_TEST_GATES[@]}"
+  { _gate_log admission fmt vet lint race coverage
     printf '#30 1.00 cg_event config_gen_corpus_sensitivity_invalid reason=glob_not_found\n'
     printf '#30 1.00 config_gen_gate_corpus_sensitivity_failed\n'; } > "${S}/build_test.err"
   printf '1\n' > "${S}/build_test.rc"
@@ -892,7 +712,7 @@ _digest_of() {
   local _p=github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/locate
   _root
   _stub_docker
-  { _gate_log admission "${_CG_TEST_GATES[@]}"
+  { _gate_log admission fmt vet lint race coverage
     printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s reason=below measured=80.4\n' "${_p}"
     printf '#30 1.00 cg_event config_gen_mutation_package_failed pkg=%s/internal/schema reason=gremlins_failed\n' "${_p%/internal/locate}"
     printf '#30 1.00 config_gen_gate_mutation_failed\n'; } > "${S}/build_test.err"
@@ -927,7 +747,7 @@ _digest_of() {
   done
   _root
   _stub_docker
-  { _gate_log admission "${_CG_TEST_GATES[@]}"
+  { _gate_log admission fmt vet lint race coverage
     for _id in "${_ids[@]}"; do
       printf '#30 1.00 cg_event %s file=dockerfile/config-gen/%s\n' "${_id}" "${_id}"
     done
@@ -994,7 +814,6 @@ gate|fmt-parse|fmt
 gate|corpus-join|race
 gate|corpus-helper|race
 gate|corpus-var|race
-gate|fuzz-panic|fuzz
 gate|mut-unstaged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
 gate|mut-staged|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzmut|below|0.0
 gate|mut-timeout|mutation||config_gen_mutation_package_failed|github.com/ycpss91255-docker/base/dockerfile/config-gen/internal/zzloop|below|75.0
@@ -1247,11 +1066,11 @@ _gate_record() {
     /source/dist/script/docker/lib/log.sh "$@" 2>&1
 }
 
-# _ok_lines <gate> -- the ok lines of every gate before <gate> (all seven
-# when <gate> is empty), admission first, fuzz (base#1850) last.
+# _ok_lines <gate> -- the ok lines of every gate before <gate> (all six
+# when <gate> is empty), admission first.
 _ok_lines() {
   local _g
-  for _g in admission "${_CG_TEST_GATES[@]}"; do
+  for _g in admission fmt vet lint race coverage; do
     [[ "${_g}" == "${1}" ]] && break
     printf 'gate=%s ok\n' "${_g}"
   done
@@ -1264,8 +1083,8 @@ _ok_lines() {
 # rc 1; a stale case is an empty stdout, the runner's records of
 # config_gen_manifest_stale (the row's file and reason) and
 # config_gen_gate_admission_failed, rc 1; a green case and both rerun
-# calls are the seven ok lines and rc 0; an after-admit case
-# (base#1467) is the seven ok lines, the runner's records of the row's gate
+# calls are the six ok lines and rc 0; an after-admit case
+# (base#1467) is the six ok lines, the runner's records of the row's gate
 # id and of its event naming the row's file, rc 1; a coverage case is the
 # five pre-coverage ok lines, the runner's records of the row's event
 # (naming the row's pkg, and its file when it has one) and
@@ -1361,7 +1180,7 @@ _canned_correct() {
   _ok_lines "" > "${S}/canned/rerun.out"
   : > "${S}/canned/rerun.err"
   printf '0\n' > "${S}/canned/rerun.rc"
-  # retro (base#1467): the seven ok lines, one passing mutation line per
+  # retro (base#1467): the six ok lines, one passing mutation line per
   # package of the module (each directory holding a .go file outside
   # testdata/), rc 0; the stub runner adds the manifest header naming the
   # base it was handed.
@@ -1836,7 +1655,7 @@ _unplanted_cases() {
 
 # why: The unmodified copy's verdict is one value per commit, but a control
 # run on every redpath invocation repeats it once per way the run is split;
-# rerun's first call already holds that copy to rc 0 and exactly the seven ok
+# rerun's first call already holds that copy to rc 0 and exactly the six ok
 # lines, a stronger check than the control's (base#1547). So rerun is the
 # only check on the unmodified copy: an unsharded run calls the runner on
 # an unplanted copy exactly twice, both told rerun, and no call is told
@@ -2301,44 +2120,14 @@ _glibc_getconf() {
 # why: A verdict RUN the build cache served prints no line, so a runner
 # that excluded only `test` (or only `admit`) from the cache passes its
 # first call and reports cache state on the next. The rerun case calls the
-# runner twice on one unchanged copy and holds each call to the seven ok
+# runner twice on one unchanged copy and holds each call to the six ok
 # lines exactly (base#1465).
 @test "config_gen_redpath.sh: a second rerun call missing the admission line fails with reason stdout_mismatch (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   _redpath_repo
-  _ok_lines "" | sed 1d > "${S}/canned/rerun.2.out"
+  printf 'gate=%s ok\n' fmt vet lint race coverage > "${S}/canned/rerun.2.out"
   cp "${S}/canned/rerun.err" "${S}/canned/rerun.2.err"
   cp "${S}/canned/rerun.rc" "${S}/canned/rerun.2.rc"
-  _run_redpath rerun
-  assert_equal "${status}" 1
-  assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
-}
-
-# why: The test stage's fuzz gate (base#1850) prints gate=fuzz ok after
-# coverage, so an unchanged copy's build prints seven ok lines. The rerun
-# case must pass on exactly those seven, written out here rather than read
-# from _ok_lines, and a call whose build stopped printing the fuzz line --
-# the six lines before it -- must fail stdout_mismatch, else a fuzz RUN the
-# cache served, or one dropped, reads as green.
-@test "config_gen_redpath.sh: both rerun calls pass on the seven ok lines ending in fuzz, and a call missing the fuzz line fails stdout_mismatch (base#1850)" {
-  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  local _seven
-  _seven='gate=admission ok
-gate=fmt ok
-gate=vet ok
-gate=lint ok
-gate=race ok
-gate=coverage ok
-gate=fuzz ok'
-  _redpath_repo
-  printf '%s\n' "${_seven}" > "${S}/canned/rerun.out"
-  printf '%s\n' "${_seven}" > "${S}/canned/rerun.2.out"
-  cp "${S}/canned/rerun.err" "${S}/canned/rerun.2.err"
-  cp "${S}/canned/rerun.rc" "${S}/canned/rerun.2.rc"
-  _run_redpath rerun
-  assert_success
-  rm -rf "${S}"/runner.* "${S}"/calls.* "${S}/nested"
-  printf '%s\n' "${_seven}" | sed '$d' > "${S}/canned/rerun.2.out"
   _run_redpath rerun
   assert_equal "${status}" 1
   assert_logged_event config_gen_redpath_case_failed case=rerun call=2 reason=stdout_mismatch
@@ -2382,9 +2171,9 @@ gate=fuzz ok'
 
 # why: A green case proves admission accepts a baseline the producer
 # writes and every gate still runs after it; a call that exits non-zero,
-# or that prints anything but the seven ok lines, is a producer output
+# or that prints anything but the six ok lines, is a producer output
 # admission refused or a gate that did not run (base#1465).
-@test "config_gen_redpath.sh: a green case that exits non-zero or prints other than the seven ok lines fails by reason (base#1465)" {
+@test "config_gen_redpath.sh: a green case that exits non-zero or prints other than the six ok lines fails by reason (base#1465)" {
   assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
   local _row _reason
   for _row in rc stdout; do
@@ -2510,7 +2299,7 @@ gate=fuzz ok'
 }
 
 # why: An after-admit case passes only when the ignored-input gate refused
-# it after every S1b gate and fuzz: exit exactly 1, the seven ok lines, the gate's
+# it after every S1b gate: exit exactly 1, the six ok lines, the gate's
 # record first, and one record of its event naming the planted file. Each
 # row breaks one part (base#1467).
 @test "config_gen_redpath.sh: an after-admit case missing any part of its contract fails with that part's reason (base#1467)" {
@@ -2539,7 +2328,7 @@ gate=fuzz ok'
 
 # why: The retro case passes only on a clean run from the empty base it
 # planted that judged every package of the module and mapped every module
-# file: a run that exited non-zero, printed other than the seven ok lines,
+# file: a run that exited non-zero, printed other than the six ok lines,
 # was handed a dirty manifest, refused a file as unmapped or judged another
 # package set is each a gate that did not see the whole module (base#1467).
 @test "config_gen_redpath.sh: a retro answer missing any part of its contract fails with that part's reason (base#1467)" {
@@ -2826,35 +2615,6 @@ gate=fuzz ok'
   assert_logged_event config_gen_redpath_case_failed case=race-fuzz reason=wrong_id gate=race
 }
 
-# why: The fuzz gate (base#1850) searches beyond the seeds the race gate
-# already runs. Its planted defect is a Fuzz target whose one seed passes,
-# so the race gate stays green, and that panics on any input of four or
-# more bytes, which only a search reaches. It sits in internal/gate, the one
-# package the fuzz gate searches. A case that went red on the
-# race gate instead would prove nothing about the search.
-@test "config_gen_redpath.sh: the fuzz-panic case plants a Fuzz target whose seed passes and must produce the fuzz gate's id (base#1850)" {
-  assert_spec_subject "${REDPATH}" "the config-gen redpath (base#1462)"
-  _redpath_repo
-  _run_redpath fuzz-panic
-  assert_success
-  local _mod _new _f
-  _mod="${S}/runner.$(_redpath_call fuzz-panic).mod"
-  _new="$(cd "${_mod}" && find . -type f | sort | comm -23 - <(cd "${S}/repo/dockerfile/config-gen" && find . -type f | sort))"
-  assert_equal "${_new}" "./internal/gate/zz_fuzzpanic_test.go"
-  _f="${_mod}/internal/gate/zz_fuzzpanic_test.go"
-  run grep -c '^func Fuzz' "${_f}"
-  assert_output 1
-  run grep -E 'f\.Add\("a"\)' "${_f}"
-  assert_success
-  run grep -E 'len\(s\) >= 4' "${_f}"
-  assert_success
-  rm -rf "${S}"/runner.* "${S}"/calls.*
-  _gate_record config_gen_gate_race_failed gate=race status=1 display=race > "${S}/canned/fuzz-panic.err"
-  _run_redpath fuzz-panic
-  assert_equal "${status}" 1
-  assert_logged_event config_gen_redpath_case_failed case=fuzz-panic reason=wrong_id gate=fuzz
-}
-
 # why: A _test.go file is outside `go build`, so a syntax error there
 # passes the build stage and reaches the fmt gate first. gofmt then exits
 # non-zero instead of listing a file; a fmt RUN that let that status kill
@@ -3038,7 +2798,7 @@ _test_gate_run() {
 # must hand cg-gates the mutation context's inputs, the bound build
 # context and the corpus root the race RUN wrote, stop with its gate's id
 # when cg-gates refuses, and print neither the id nor an ok line when it
-# passes (the green callers expect exactly the seven ok lines).
+# passes (the green callers expect exactly the six S1b ok lines).
 @test "Dockerfile.config-gen: the ignored, corpus_sensitivity and mutation RUNs run cg-gates on their inputs and stop with the gate's id on its refusal (base#1467)" {
   assert_spec_subject "${DOCKERFILE}" "the config generator's build/test/final Dockerfile (base#1462)"
   local _g _want

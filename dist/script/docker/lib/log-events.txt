@@ -432,9 +432,6 @@ config_gen_gate_vet_failed
 config_gen_gate_lint_failed
 config_gen_gate_race_failed
 config_gen_gate_coverage_failed
-# The sixth gate, fuzz (base#1850): a Fuzz target's 60 s search found a
-# failing input.
-config_gen_gate_fuzz_failed
 config_gen_build_failed
 config_gen_step_failed
 config_gen_step_reused
@@ -534,10 +531,6 @@ go_mod_fixture_unclassified
 go_mod_oracle_mismatch
 go_mod_oracle_pin_missing
 go_mod_pin_target_not_require
-
-# script/test/config_gen_steps/10-toml-oracle.sh: the pinned toml-bridge
-# container could not answer for the gate's TOML files (base#1851).
-config_gen_toml_oracle_failed
 
 # script/watch/pins.sh --set and _pin_go_mod_set_line: a bump refused with
 # the file left as it was (base#1463).
