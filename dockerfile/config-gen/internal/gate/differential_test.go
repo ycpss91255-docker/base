@@ -81,7 +81,7 @@ func TestOracleDifferentialHoldsRowsToTheFileSet(t *testing.T) {
 			for _, rel := range tc.files {
 				files[rel] = path[rel]
 			}
-			_, problems := oracleDifferential(writeOracle(t, tc.rows), files)
+			_, problems := oracleDifferential(writeOracle(t, tc.rows), files, liveExpect)
 			got := strings.Join(problems, "\n")
 			if tc.want == "" {
 				if got != "" {
@@ -153,7 +153,7 @@ func TestDifferentialRefusesRowsThatAreNotTheFiles(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, problems := oracleDifferential(writeOracle(t, tc.rows), files)
+			_, problems := oracleDifferential(writeOracle(t, tc.rows), files, liveExpect)
 			got := strings.Join(problems, "\n")
 			if tc.want == "" {
 				if got != "" {
@@ -243,7 +243,7 @@ func TestOracleDifferentialRefusesAnIncompleteOracle(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			path := tc.path(t)
-			rows, problems := oracleDifferential(path, files)
+			rows, problems := oracleDifferential(path, files, liveExpect)
 			got := strings.Join(problems, "\n")
 			if tc.want == "" {
 				if got != "" || len(rows) != 2 {
@@ -285,7 +285,7 @@ func TestOracleDifferentialNamesEveryFlippedVerdict(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := oracleFiles(t)
-	if _, base := oracleDifferential(writeOracle(t, rows), files); len(base) != 0 {
+	if _, base := oracleDifferential(writeOracle(t, rows), files, liveExpect); len(base) != 0 {
 		t.Fatalf("the live rows give %d problems (TestDifferential names them); a flipped verdict cannot be told from them", len(base))
 	}
 
@@ -302,7 +302,7 @@ func TestOracleDifferentialNamesEveryFlippedVerdict(t *testing.T) {
 	flipped := append([]string(nil), rows...)
 	flipped[one] = flipVerdict(rows[one])
 	rel, _, _ := strings.Cut(rows[one], "\t")
-	_, problems := oracleDifferential(writeOracle(t, flipped), files)
+	_, problems := oracleDifferential(writeOracle(t, flipped), files, liveExpect)
 	if len(problems) != 1 || !strings.HasPrefix(problems[0], rel+": gate+BurntSushi ") {
 		t.Errorf("one flipped verdict, %s: problems = %q, want one naming it", rel, problems)
 	}
@@ -310,7 +310,7 @@ func TestOracleDifferentialNamesEveryFlippedVerdict(t *testing.T) {
 	for i, r := range rows {
 		flipped[i] = flipVerdict(r)
 	}
-	_, problems = oracleDifferential(writeOracle(t, flipped), files)
+	_, problems = oracleDifferential(writeOracle(t, flipped), files, liveExpect)
 	named := map[string]bool{}
 	for _, p := range problems {
 		if f, _, ok := strings.Cut(p, ": gate+BurntSushi "); ok {
@@ -454,12 +454,26 @@ var int64Rows = map[string]bool{
 	"internal/gate/testdata/forms/int64-over.toml":       true,
 }
 
+// oracleExpect is what differential holds the rows to beyond the verdict
+// itself: the files that must take the int64 exception and no others
+// (int64Rows), tomllib's a for those whose first line holds one (int64A),
+// and tomllib's decoded values (values). Each caller passes its own, so a
+// planted case never inherits a real file's pins (base#1851).
+type oracleExpect struct {
+	int64Rows map[string]bool
+	int64A    map[string]float64
+	values    map[string]map[string]any
+}
+
+// liveExpect holds the expectations for the committed files.
+var liveExpect = oracleExpect{int64Rows: int64Rows, int64A: int64A, values: designValues}
+
 // The gate plus BurntSushi must give tomllib's verdict on every TOML file
 // the live oracle answered (seam S2, base#1851); oracleDifferential reads
 // the verdicts file and does the comparison. The live rows must also hold
 // tomllib's design-measured verdict for every designVerdicts file.
 func TestDifferential(t *testing.T) {
-	rows, problems := oracleDifferential(os.Getenv("CONFIG_GEN_TOML_ORACLE"), oracleFiles(t))
+	rows, problems := oracleDifferential(os.Getenv("CONFIG_GEN_TOML_ORACLE"), oracleFiles(t), liveExpect)
 	for _, p := range problems {
 		t.Error(p)
 	}
@@ -485,14 +499,14 @@ func TestDifferential(t *testing.T) {
 // oracleDifferential is TestDifferential's whole comparison: it reads the
 // verdicts file at path (loadOracleVerdicts, so an empty path or an
 // unreadable file is the one problem noOracleMsg) and compares its rows
-// with files (differential). It returns the rows read and one line per
-// problem (review round 2, base#1851).
-func oracleDifferential(path string, files map[string]string) ([]string, []string) {
+// with files (differential) under the expectations exp. It returns the
+// rows read and one line per problem (review round 2, base#1851).
+func oracleDifferential(path string, files map[string]string, exp oracleExpect) ([]string, []string) {
 	rows, err := loadOracleVerdicts(path)
 	if err != nil {
 		return nil, []string{err.Error()}
 	}
-	return rows, differential(rows, files)
+	return rows, differential(rows, files, exp)
 }
 
 // differential compares the gate plus BurntSushi with the tomllib verdict
@@ -507,11 +521,11 @@ func oracleDifferential(path string, files map[string]string) ([]string, []strin
 // when Check returns nil and toml.Decode then succeeds, refuse otherwise,
 // with one exception: when Check returns nil and toml.Decode refuses only
 // integers outside int64 (int64Only), which tomllib accepts, the verdict
-// is accept. Only int64Rows may take that path, and each of them must, on
+// is accept. Only exp.int64Rows may take that path, and each of them must, on
 // every path: forms, toml-test and the shared corpus (review round 2,
 // base#1851).
 // Each disagreeing file is named with both verdicts.
-func differential(rows []string, files map[string]string) []string {
+func differential(rows []string, files map[string]string, exp oracleExpect) []string {
 	rels := make([]string, 0, len(files))
 	for rel := range files {
 		rels = append(rels, rel)
@@ -557,7 +571,7 @@ func differential(rows []string, files map[string]string) []string {
 				got = "accept"
 			} else if int64Only(norm, err) {
 				got, viaInt64 = "accept", true
-				if want, ok := int64A[rel]; ok {
+				if want, ok := exp.int64A[rel]; ok {
 					if a, ok := designInt64A(norm); !ok || a != want {
 						problems = append(problems, fmt.Sprintf("%s: a = %v (ok %v) after the int64 path, tomllib loads %v", rel, a, ok, want))
 					}
@@ -567,10 +581,10 @@ func differential(rows []string, files map[string]string) []string {
 		if got != live {
 			problems = append(problems, fmt.Sprintf("%s: gate+BurntSushi %s, tomllib %s", rel, got, live))
 		}
-		if viaInt64 != int64Rows[rel] {
-			problems = append(problems, fmt.Sprintf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, int64Rows[rel]))
+		if viaInt64 != exp.int64Rows[rel] {
+			problems = append(problems, fmt.Sprintf("%s: int64 exception path taken = %v, want %v", rel, viaInt64, exp.int64Rows[rel]))
 		}
-		if want, ok := designValues[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
+		if want, ok := exp.values[rel]; ok && got == "accept" && !reflect.DeepEqual(v, want) {
 			problems = append(problems, fmt.Sprintf("%s: decoded %#v, tomllib loads %#v", rel, v, want))
 		}
 	}
@@ -602,7 +616,7 @@ func TestDifferentialHoldsTheInt64ExceptionToItsSetOnEveryPath(t *testing.T) {
 		if err := os.WriteFile(p, []byte(over), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, problems := oracleDifferential(writeOracle(t, []string{tc.rel + "\taccept\t" + digest}), map[string]string{tc.rel: p})
+		_, problems := oracleDifferential(writeOracle(t, []string{tc.rel + "\taccept\t" + digest}), map[string]string{tc.rel: p}, liveExpect)
 		got := strings.Join(problems, "\n")
 		if got != tc.want {
 			t.Errorf("%s: problems = %q, want %q", tc.rel, got, tc.want)
