@@ -1,0 +1,76 @@
+name: Merged PR comment
+
+# GitHub never notifies an account about its own actions, and the owner
+# merges through the merge queue, so a merge leaves no event addressed to
+# the owner. This workflow fires when a pull request into main closes; the
+# comment it posts as the bot is the event that lets GitHub send the owner
+# a notification, subject to their notification settings (base#2012).
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: merged-pr-comment-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Announce the merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MERGE_SHA}" ]; then
+            echo 'merge_commit_sha is empty; not a merge event' >&2
+            exit 1
+          fi
+          body_file="${RUNNER_TEMP:-/tmp}/merged-pr-comment.md"
+          owner="${REPO%%/*}"
+          name="${REPO#*/}"
+          # $owner/$name/$number are GraphQL variables, not shell
+          # shellcheck disable=SC2016
+          # tool-pin: ignore -- a GraphQL query, not a third-party version
+          query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){closingIssuesReferences(first:100){pageInfo{hasNextPage} nodes{number repository{nameWithOwner}}}}}}'
+          answer="$(gh api graphql \
+            -F owner="${owner}" -F name="${name}" -F number="${PR}" \
+            -f query="${query}")"
+          # first:100 is one page; a longer list must not read as complete
+          if [ "$(jq -r '.data.repository.pullRequest.closingIssuesReferences.pageInfo.hasNextPage' <<<"${answer}")" != "false" ]; then
+            echo 'closing issues span more than one page, or the read is incomplete' >&2
+            exit 1
+          fi
+          refs="$(jq -r --arg repo "${REPO}" '[.data.repository.pullRequest.closingIssuesReferences.nodes[]
+            | if .repository.nameWithOwner == $repo then "#\(.number)"
+              else "\(.repository.nameWithOwner)#\(.number)" end] | join(", ")' <<<"${answer}")"
+          {
+            echo '<!-- merged-pr-comment -->'
+            echo "Merged as ${MERGE_SHA}."
+            if [ -n "${refs}" ]; then
+              echo "Closes: ${refs}."
+            else
+              echo 'This PR closes no issue.'
+            fi
+          } >"${body_file}"
+          # a re-run must not comment twice: only the bot's own comment that
+          # begins with the marker line counts as already posted
+          prior="$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merged-pr-comment -->"))) | .user.login')"
+          if [ -n "${prior}" ]; then
+            echo 'already commented'
+            exit 0
+          fi
+          gh pr comment "${PR}" --repo "${REPO}" \
+            --body-file "${body_file}"
