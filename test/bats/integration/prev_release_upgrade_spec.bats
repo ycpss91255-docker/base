@@ -558,6 +558,9 @@ _assert_release_migrates_env() {
   _seed_current_remote
   _seed_released_remote "${_tag}"
   _seed_consumer "${_tag}"
+  # base#1950: the arm models a consumer that has only a hand-written .env;
+  # a newer seed may already carry .env.local, which would mask the migration.
+  rm -f "${CONSUMER}/.env.local"
 
   printf '# my machine\nROS_DOMAIN_ID=42\nAPI_TOKEN=secret\n' > "${CONSUMER}/.env"
 
@@ -1180,6 +1183,10 @@ _assert_upgrade_leaves_an_upgradable_tree() {
   _assert_release_migrates_env "${_tag}"
 }
 
+# why: base#1950 -- once a released init.sh seeds .env.local itself, the
+# #868 arm would find that seeded file instead of the migrated one and go red
+# on a consumer the migration handled correctly; this pins the arm's own
+# pre-migration seed so the release can be tagged.
 @test "the #868 .env arm holds with a seed that already carries .env.local (#1950)" {
   _window_written
   _window_reaches 1 || return 0
