@@ -53,7 +53,14 @@ case "$1 $2" in
       [ "$1" = "--body-file" ] && cp "$2" "${POSTED}"
       shift
     done ;;
-  "api --paginate") if [ -f "${LIST_FIXTURE}" ]; then cat "${LIST_FIXTURE}"; else echo '[]'; fi ;;
+  "api --paginate")
+    # apply the caller's --jq to the REST comment array, as gh does
+    expr=""
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--jq" ] && expr="$2"
+      shift
+    done
+    if [ -f "${LIST_FIXTURE}" ]; then jq -r "${expr:-.}" "${LIST_FIXTURE}"; else echo '[]' | jq -r "${expr:-.}"; fi ;;
   *) echo "unexpected gh call: $*" >&2; exit 99 ;;
 esac
 STUB
@@ -115,5 +122,21 @@ JSON
     >"${GQL_FIXTURE}"
   MERGE_SHA="" _run_step
   [ "${status}" -ne 0 ]
+  [ ! -e "${POSTED}" ]
+}
+
+# why: A re-run of the job after a successful post must not comment twice.
+# The fixture is the REST comment list holding a comment the bot authored
+# that starts with the marker line (base#2012)
+@test "merged-pr-comment: a prior bot comment with the marker suppresses a second post" {
+  _stub_gh
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+    >"${GQL_FIXTURE}"
+  cat >"${LIST_FIXTURE}" <<'JSON'
+[{"user":{"login":"someone"},"body":"thanks"},
+ {"user":{"login":"github-actions[bot]"},"body":"<!-- merged-pr-comment -->\nMerged as abc."}]
+JSON
+  _run_step
+  assert_success
   [ ! -e "${POSTED}" ]
 }
