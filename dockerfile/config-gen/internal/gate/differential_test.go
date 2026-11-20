@@ -49,35 +49,48 @@ func TestLoadOracleVerdictsFailsClosed(t *testing.T) {
 // testdata (base#1851): a file with no row was never asked of tomllib,
 // and a row with no file is a verdict for something the differential
 // cannot read. Each direction fails naming the path; the same set in
-// another order passes. Rows are the step's `<rel>\t<verdict>` lines,
-// rel taken from dockerfile/config-gen.
-func TestCheckOracleRowsSetEquality(t *testing.T) {
+// another order passes. The rows go through the verdicts file, the seam
+// TestDifferential reads, as the step writes them: `<rel>\t<verdict>\t
+// <sha256>`, rel taken from dockerfile/config-gen (review round 1,
+// base#1851). Both files hold "x = 1\n", so every row's digest is the
+// file's and only the row set decides.
+func TestOracleDifferentialHoldsRowsToTheFileSet(t *testing.T) {
 	const a = "internal/gate/testdata/toml-test/valid/a.toml"
 	const b = "internal/gate/testdata/toml-test/invalid/b.toml"
+	dir := t.TempDir()
+	path := map[string]string{a: filepath.Join(dir, "a.toml"), b: filepath.Join(dir, "b.toml")}
+	for _, p := range path {
+		if err := os.WriteFile(p, []byte("x = 1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rowA, rowB := a+"\taccept\t"+x1Digest, b+"\taccept\t"+x1Digest
 	cases := []struct {
 		name  string
 		rows  []string
 		files []string
-		want  string // "" = nil error; otherwise a substring of the error
+		want  string // "" = no problem; otherwise a substring of the problems
 	}{
-		{"equal sets", []string{b + "\trefuse", a + "\taccept"}, []string{a, b}, ""},
-		{"missing row", []string{a + "\taccept"}, []string{a, b}, b},
-		{"extra row", []string{a + "\taccept", b + "\trefuse"}, []string{a}, b},
+		{"equal sets in another order", []string{rowB, rowA}, []string{a, b}, ""},
+		{"missing row", []string{rowA}, []string{a, b}, "no oracle verdict row for " + b},
+		{"extra row", []string{rowA, rowB}, []string{a}, "oracle verdict row for " + b + " names no testdata file"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := checkOracleRows(tc.rows, tc.files)
+			files := map[string]string{}
+			for _, rel := range tc.files {
+				files[rel] = path[rel]
+			}
+			_, problems := oracleDifferential(writeOracle(t, tc.rows), files)
+			got := strings.Join(problems, "\n")
 			if tc.want == "" {
-				if err != nil {
-					t.Fatalf("checkOracleRows(%q, %q) = %v, want nil", tc.rows, tc.files, err)
+				if got != "" {
+					t.Fatalf("oracleDifferential(%q) problems = %q, want none", tc.rows, got)
 				}
 				return
 			}
-			if err == nil {
-				t.Fatalf("checkOracleRows(%q, %q) = nil, want an error naming %q", tc.rows, tc.files, tc.want)
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Fatalf("checkOracleRows(%q, %q) error = %q, want it to name %q", tc.rows, tc.files, err.Error(), tc.want)
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("oracleDifferential(%q) problems = %q, want them to name %q", tc.rows, got, tc.want)
 			}
 		})
 	}

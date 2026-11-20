@@ -22,10 +22,10 @@ func loadOracleVerdicts(path string) ([]string, error) {
 	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n"), nil
 }
 
-// checkOracleRows holds the verdict rows (`<rel>\t<verdict>`) to the set
-// of TOML files the differential reads (base#1851): every file needs a
-// row and every row a file. Order does not matter; the error names each
-// path on either side, sorted.
+// checkOracleRows holds the verdict rows (`<rel>\t<verdict>\t<sha256>`)
+// to the set of TOML files the differential reads (base#1851): every file
+// needs a row and every row a file. Order does not matter; the error names
+// each path on either side, sorted.
 func checkOracleRows(rows, files []string) error {
 	have := make(map[string]bool, len(rows))
 	for _, r := range rows {
