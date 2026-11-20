@@ -7,16 +7,15 @@
 # one explicit expectation class in testdata/golden/s1/EXPECT, one row per
 # fixture, `<fixture>\t<class>`:
 #
-#   parity                      bridge and config-gen print the golden
-#   parity-refused              both sides give rc 1
-#   bridge-refused-go-accepted  config-gen gives rc 0 and its golden, the
-#                               bridge gives rc 1; only toml11_* fixtures
-#                               may carry it (today's known divergence,
-#                               not a parity claim)
+#   parity          bridge and config-gen print the golden
+#   parity-refused  both sides give rc 1
 #
-# A fixture with no row, a row with no fixture, or the divergent class on
-# any other name fails the spec, so a new fixture can never be read without
-# a stated expectation and a stale row can never stand for a deleted one.
+# A fixture with no row, a row with no fixture, or a row of any other
+# class fails the spec, so a new fixture can never be read without a stated
+# expectation and a stale row can never stand for a deleted one. The
+# former divergent class bridge-refused-go-accepted is retired: config-gen
+# runs internal/gate before decode, so a TOML 1.1-only fixture is
+# parity-refused (base#1936).
 
 bats_require_minimum_version 1.5.0
 
@@ -30,11 +29,11 @@ setup() {
 
 # _expect_partition <corpus-dir> <expect-file> -- succeed only when every
 # <corpus-dir>/*.toml stem has exactly one well-formed EXPECT row, every row
-# names an existing fixture, and bridge-refused-go-accepted sits only on a
-# toml11_* name. Prints one line per violation; returns 1 on any.
+# names an existing fixture. Prints one line per violation; returns 1 on
+# any.
 _expect_partition() {
   local _corpus="${1}" _expect="${2}" _line _name _class _f _stem _bad=0
-  local _re=$'^([^\t]+)\t(parity|parity-refused|bridge-refused-go-accepted)$'
+  local _re=$'^([^\t]+)\t(parity|parity-refused)$'
   local -A _row=()
   if [[ ! -f "${_expect}" ]]; then
     printf 'EXPECT file missing: %s\n' "${_expect}"
@@ -55,10 +54,6 @@ _expect_partition() {
     _row["${_name}"]="${_class}"
     if [[ ! -f "${_corpus}/${_name}.toml" ]]; then
       printf 'EXPECT row with no fixture: %s\n' "${_name}"
-      _bad=1
-    fi
-    if [[ "${_class}" == bridge-refused-go-accepted && "${_name}" != toml11_* ]]; then
-      printf 'bridge-refused-go-accepted on a non-toml11_* fixture: %s\n' "${_name}"
       _bad=1
     fi
   done < "${_expect}"
@@ -143,10 +138,7 @@ fixture with no EXPECT row: toml11_ok"
 # `--tables` answer captured once, and the bridge (rc 0) and the binary
 # (rc 0, empty stderr) must each match it byte for byte. parity-refused:
 # both sides must give rc 1 and the binary an empty stdout; no golden is
-# compared. bridge-refused-go-accepted (toml11_* only): the bridge must
-# give rc 1 and only its status is checked; the binary (rc 0, empty
-# stderr) must match the golden, which the bridge can not produce for
-# these fixtures. Every comparison is cmp, never through $(...), which
+# compared. Every comparison is cmp, never through $(...), which
 # would drop trailing LFs and hide a missing or extra final newline. The
 # binary is the built
 # config-gen that script/test/test.sh provisions as CONFIG_GEN_BIN; an
@@ -166,25 +158,15 @@ fixture with no EXPECT row: toml11_ok"
 
     _rc=0
     python3 "${_bridge}" --tables < "${_in}" > "${S}/bridge.out" 2> "${S}/bridge.err" || _rc=$?
-    case "${_class}" in
-      parity | parity-refused)
-        if [[ "${_class}" == parity ]]; then
-          if (( _rc != 0 )) || ! cmp -s "${_gold}" "${S}/bridge.out"; then
-            printf '%s: bridge rc=%d or stdout differs from golden\n' "${_name}" "${_rc}"
-            _bad=1
-          fi
-        elif (( _rc != 1 )); then
-          printf '%s: bridge rc=%d, want 1\n' "${_name}" "${_rc}"
-          _bad=1
-        fi
-        ;;
-      bridge-refused-go-accepted)
-        if (( _rc != 1 )); then
-          printf '%s: bridge rc=%d, want 1\n' "${_name}" "${_rc}"
-          _bad=1
-        fi
-        ;;
-    esac
+    if [[ "${_class}" == parity ]]; then
+      if (( _rc != 0 )) || ! cmp -s "${_gold}" "${S}/bridge.out"; then
+        printf '%s: bridge rc=%d or stdout differs from golden\n' "${_name}" "${_rc}"
+        _bad=1
+      fi
+    elif (( _rc != 1 )); then
+      printf '%s: bridge rc=%d, want 1\n' "${_name}" "${_rc}"
+      _bad=1
+    fi
 
     _rc=0
     "${CONFIG_GEN_BIN}" tables --name "${_name}" "${_in}" > "${S}/bin.out" 2> "${S}/bin.err" || _rc=$?
