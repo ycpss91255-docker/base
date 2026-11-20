@@ -448,12 +448,12 @@ except RecursionError:
   done
 }
 
-# why: Each verdict row is `<rel>\t<verdict>\t<sha256>`, and the
-# differential test keys it by path, so a path has to survive the tar,
-# the container's shell loop and the TSV unchanged. A name outside [A-Za-z0-9._/-] -- here
-# a space in forms/a b.toml -- is not one the step can promise that for,
-# and the vendored and hand-written inputs never need one. The step must
-# refuse it before asking the container, under the five-point refusal
+# why: The step holds its input file names to [A-Za-z0-9._/-]. That is a
+# file-name policy, and every vendored and hand-written input fits it.
+# It is not a parsing limit -- a space survives the tar, the oracle program's
+# member.name and the tab-split TSV (review round 4, base#1851) -- and
+# forms/a b.toml uses a space only as one name outside the set. The step
+# must refuse it before asking the container, under the five-point refusal
 # test: status 1, nothing on stdout, config_gen_toml_oracle_failed
 # reason=name naming the file, no `docker run`, and no toml-oracle/
 # directory left.
@@ -474,7 +474,10 @@ except RecursionError:
 # lines in those two lists -- 746 paths at v2.2.0, a figure written out
 # here from counting upstream's lists, not re-derived -- with none
 # missing and none added by hand. SOURCE must name the tag and the full
-# 40-hex commit, so the copy can be re-fetched and compared byte for byte.
+# 40-hex commit, so the copy can be re-fetched and compared byte for byte:
+# ce08da1ddb075d1c7596d663c7fcba9a2ae02c5c, the commit GitHub's API gave
+# for toml-lang/toml-test v2.2.0 on 2026-11-20, written out whole so a
+# typo in any digit fails (review round 4, base#1851).
 # The MIT LICENSE the copy is redistributed under must be vendored too,
 # and it and the two lists are upstream's bytes at that commit: their
 # SHA-256 digests below are of toml-lang/toml-test's LICENSE,
@@ -516,7 +519,7 @@ SUMS
     a96f3073e9eaa9fb027c664769e6ecbd38aa8903eff7d88c2cf806b28f025d5f
   run grep -cwF 'v2.2.0' "${_v}/SOURCE"
   assert_output 1
-  run grep -cE '(^|[^0-9a-f])ce08da1[0-9a-f]{33}([^0-9a-f]|$)' "${_v}/SOURCE"
+  run grep -cE '(^|[^0-9a-f])ce08da1ddb075d1c7596d663c7fcba9a2ae02c5c([^0-9a-f]|$)' "${_v}/SOURCE"
   assert_output 1
   run --separate-stderr /source/script/watch/pins.sh --value toml-test
   assert_success

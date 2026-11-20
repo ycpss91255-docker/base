@@ -135,8 +135,8 @@ func Check(label string, src []byte) error {
 	if errors.Is(err, errStop) {
 		err = nil
 		if !undecodable(src, t.i) {
-			// A stop at the end of the document names its last byte, so
-			// the position is always a byte of src.
+			// min keeps the offset inside src when the stop is at the
+			// end of the document.
 			stop = refusal(label, src, min(t.i, len(src)-1), ReasonSyntax, syntaxText)
 		}
 	}

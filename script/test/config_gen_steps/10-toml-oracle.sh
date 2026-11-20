@@ -39,9 +39,10 @@
 # partial oracle would pass (review round 2, base#1851). An input path
 # with a character outside [A-Za-z0-9._/-] is
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
-# `docker run` and before the toml-oracle directory exists: a verdict row
-# is keyed by path, and such a name may not survive the tar, the oracle
-# program and the TSV unchanged. An image that cannot be derived or built,
+# `docker run` and before the toml-oracle directory exists. That set is a
+# file-name policy, not a parsing limit: every vendored and hand-written
+# input fits it, and a space, for one, reaches the TSV unchanged (review
+# round 4, base#1851). An image that cannot be derived or built,
 # and a container that exits non-zero, are config_gen_toml_oracle_failed
 # reason=image, and the toml-oracle directory is removed, so the build has
 # no verdicts to read. An answer whose line count differs from the number
@@ -131,7 +132,7 @@ main() {
   for f in "${files[@]}"; do
     if [[ ! "${f}" =~ ^[A-Za-z0-9._/-]+$ ]]; then
       _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=name "file=${f}" \
-        "display=config_gen_toml_oracle_failed: ${f} has a character outside [A-Za-z0-9._/-]; its verdict row could not be keyed by path"
+        "display=config_gen_toml_oracle_failed: ${f} has a character outside [A-Za-z0-9._/-], the file names the oracle inputs are held to"
       return 1
     fi
   done

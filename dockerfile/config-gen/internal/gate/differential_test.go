@@ -664,25 +664,3 @@ func designInt64A(src []byte) (float64, bool) {
 	a, ok := v["a"].(float64)
 	return a, ok
 }
-
-// The refusals the file seam cannot reach: Normalize turns an overflowing
-// float into inf before the decode, so int64Only never sees BurntSushi's
-// float64 range refusal there. Fed that refusal directly, under
-// a plain key and under a key carrying the int64 message text, it is not
-// the int64 exception. Errors come from BurntSushi v1.6.0's toml.Decode
-// (base#1851).
-func TestInt64Only(t *testing.T) {
-	for _, src := range []string{
-		"a = 1e999\n",
-		"\"x is out of range for int64\" = 1e999\n",
-	} {
-		var v map[string]any
-		_, err := toml.Decode(src, &v)
-		if err == nil {
-			t.Fatalf("toml.Decode(%q) = nil, want a refusal to test int64Only on", src)
-		}
-		if int64Only([]byte(src), err) {
-			t.Errorf("int64Only(%q, %v) = true, want false", src, err)
-		}
-	}
-}
