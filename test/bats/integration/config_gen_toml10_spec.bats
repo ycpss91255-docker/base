@@ -465,8 +465,16 @@ except RecursionError:
 # and it and the two lists are upstream's bytes at that commit: their
 # SHA-256 digests below are of toml-lang/toml-test's LICENSE,
 # tests/files-toml-1.0.0 and tests/files-toml-1.1.0 at ce08da1, fetched
-# from GitHub on 2026-11-20 (review round 1, base#1851).
-@test "toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, LICENSE and both lists are upstream's bytes, and SOURCE names v2.2.0 and the 40-hex commit (base#1851)" {
+# from GitHub on 2026-11-20 (review round 1, base#1851). Every other
+# vendored byte is pinned too: a case edited so that its verdict holds
+# (valid/newline-crlf.toml rewritten with LF endings, say) keeps the
+# manifest and the differential green and loses the upstream case. The
+# whole-tree digest below is the SHA-256 of `sha256sum` run on every
+# vendored file but SOURCE, in C order, and it was computed from
+# toml-lang/toml-test's tarball at ce08da1 (codeload.github.com, fetched
+# 2026-11-20), laid out as vendored here, not from this checkout (review
+# round 1, base#1851).
+@test "toml-test vendoring: the *.toml files are exactly the 746 in files-toml-1.0.0 and files-toml-1.1.0, every vendored file is upstream's bytes, and SOURCE names v2.2.0 and the 40-hex commit (base#1851)" {
   local _v=/source/dockerfile/config-gen/internal/gate/testdata/toml-test
   local _f _sum
   while read -r _sum _f; do
@@ -483,6 +491,11 @@ SUMS
   assert_equal "$(printf '%s\n' "${_want}" | wc -l)" 746
   _got="$(cd -- "${_v}" && find . -type f -name '*.toml' | sed 's|^\./||' | LC_ALL=C sort)"
   assert_equal "${_got}" "${_want}"
+  local _tree
+  _tree="$(cd -- "${_v}" && find . -type f ! -name SOURCE | sed 's|^\./||' \
+    | LC_ALL=C sort | while read -r _f; do sha256sum -- "${_f}"; done)"
+  assert_equal "$(printf '%s\n' "${_tree}" | sha256sum | cut -d' ' -f1)" \
+    a96f3073e9eaa9fb027c664769e6ecbd38aa8903eff7d88c2cf806b28f025d5f
   run grep -cwF 'v2.2.0' "${_v}/SOURCE"
   assert_output 1
   run grep -cE '(^|[^0-9a-f])ce08da1[0-9a-f]{33}([^0-9a-f]|$)' "${_v}/SOURCE"
