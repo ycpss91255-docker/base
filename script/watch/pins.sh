@@ -17,6 +17,19 @@
 # read watch/lib.sh, which is where the marker grammar and the derivation
 # are documented.
 #
+# A pin whose marker carries `sha256=<ARG>@<source>` options also has
+# checksum ARGs in its own file. --set regenerates them with the version,
+# in the same commit (base#1676): every named ARG must match exactly once
+# and every digest must resolve to 64 hex characters before anything is
+# written; the version line and every checksum ARG are then rewritten and
+# read back, the version last, and the file is restored from a backup on
+# any failure. A go.mod or golang pin, whose bump writes other files too,
+# refuses sha256= options. `<source>` is `asset:<url>` (the digest is
+# computed from the downloaded asset) or `file:<url>:<asset>` (the digest
+# is read from the line naming <asset> in an upstream checksum file);
+# `{version}` expands to the new version. The success output records each
+# source.
+#
 # Usage:
 #   ./script/watch/pins.sh --list             # TSV table of every marker
 #   ./script/watch/pins.sh --value <name>     # one pin's current version
@@ -49,9 +62,12 @@ Usage: ./script/watch/pins.sh <mode>
 
   --list                 One TSV record per marker:
                          state name resolver coordinate pattern skip
-                         current file line
+                         current file line checksums
+                         (checksums: the marker's sha256=<ARG>@<source>
+                         options, space separated, or -)
   --value <name>         Print the current version of one pinned entry.
-  --set <name> <version> Rewrite that pin's declaration line in place.
+  --set <name> <version> Rewrite that pin's declaration line in place, and
+                         regenerate its sha256= checksum ARGs with it.
   --files                Print the scanned files, repo-root-relative.
   --uncovered            Print every version declaration that no marker
                          claims (what the pin-coverage lint fails on).
@@ -75,9 +91,9 @@ _pins_value() {
     printf 'pins: no pin named %s\n' "${_name}" >&2
     return 1
   fi
-  local _state _n _resolver _coord _pattern _skip _current _file _line
+  local _state _n _resolver _coord _pattern _skip _current _file _line _cksum
   IFS=$'\t' read -r _state _n _resolver _coord _pattern _skip _current \
-    _file _line <<< "${_record}"
+    _file _line _cksum <<< "${_record}"
   if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
     printf 'pins: %s is declared %s -- it names no version\n' \
       "${_name}" "${_state}" >&2
@@ -261,12 +277,12 @@ _pins_set_go_mod() {
 _PINS_STAGED_SUM=""
 _pins_stage_go_mod() {
   local _abs="${1}" _n="${2}" _repl="${3}" _image="${4:-}" _record _term=$'\n'
-  local _state _gname _resolver _coord _pattern _skip _gfile _gline
+  local _state _gname _resolver _coord _pattern _skip _gfile _gline _gcksum
   local _sum="${_abs%/*}/go.sum" _staged _sumtmp
   if [[ -z "${_image}" ]]; then
     _record="$(_pins_record "${_PIN_GO_DIRECTIVE_PIN}")"
     IFS=$'\t' read -r _state _gname _resolver _coord _pattern _skip _image \
-      _gfile _gline <<< "${_record}"
+      _gfile _gline _gcksum <<< "${_record}"
     if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
       _pins_refuse "${_abs}" golang_pin_missing "no pinned ${_PIN_GO_DIRECTIVE_PIN} image to regenerate go.sum in"
       return 1
@@ -460,6 +476,164 @@ _pins_set_golang() {
   [[ -z "${_failed}" ]]
 }
 
+# _pins_arg_lines <file> <ARG>
+#
+# Prints "<lineno>:<line>" for every `ARG <name>=` declaration of exactly that
+# name; the one match rule shared by the pre-check, the write and the read
+# back (base#1676).
+_pins_arg_lines() {
+  grep -nE "^[[:space:]]*ARG[[:space:]]+${2}=" "${1}" || true
+}
+
+# _pins_checksum_digests <version> <spec...>
+#
+# Each spec is <ARG>@asset:<url> or <ARG>@file:<url>:<asset>; {version} in
+# the url is the new version. Prints one digest per spec, in order, once
+# every spec has resolved. Fails, printing nothing to stdout, when any
+# digest cannot be resolved to 64 hex characters, so the caller can refuse
+# before any write (base#1676).
+_pins_checksum_digests() {
+  local _ver="${1}" _spec _src _name _body _url _digest _out=""
+  for _spec in ${2}; do
+    _src="${_spec#*@}"
+    _name=""
+    if [[ "${_src}" == file:* ]]; then
+      # file:<url>:<asset>: the digest is the line naming <asset> in the
+      # upstream checksum file at <url> (base#1676).
+      _src="${_src#file:}"
+      _name="${_src##*:}"
+      _src="${_src%:*}"
+    else
+      _src="${_src#asset:}"
+    fi
+    _url="${_src//\{version\}/${_ver}}"
+    _name="${_name//\{version\}/${_ver}}"
+    # file:// is read directly (the unit tests' fixtures; the test image
+    # has no curl); anything else is fetched.
+    if [[ -n "${_name}" ]]; then
+      if [[ "${_url}" == file://* ]]; then
+        _body="$(cat -- "${_url#file://}")" || return 1
+      else
+        _body="$(curl -fsSL -- "${_url}")" || return 1
+      fi
+      _digest="$(awk -v n="${_name}" '$2 == n || $2 == "*" n { print $1; exit }' <<< "${_body}")"
+    elif [[ "${_url}" == file://* ]]; then
+      _digest="$(sha256sum < "${_url#file://}")" || return 1
+    else
+      _digest="$(curl -fsSL -- "${_url}" | sha256sum)" || return 1
+    fi
+    _digest="${_digest%% *}"
+    if [[ ! "${_digest}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+      printf 'pins: no sha256 digest for %s from %s\n' "${_spec%%@*}" "${_url}" >&2
+      return 1
+    fi
+    _out+="${_digest}"$'\n'
+  done
+  printf '%s' "${_out}"
+}
+
+# _pins_assign_line <line> <value>
+#
+# <line> with the value it assigns replaced by <value>; non-zero when <line>
+# assigns nothing. Only the value changes: the quoting and everything after
+# it -- the spacing and any trailing comment -- are carried across verbatim.
+# The version line and every checksum line are rewritten through this one
+# helper, so both keep the same shape (base#1676).
+_pins_assign_line() {
+  [[ "${1}" =~ ${_PIN_ASSIGN_RE} ]] || return 1
+  local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}" _quote="" _value
+  _value="$(_pin_rhs_value "${_rhs}")"
+  [[ "${_value}" == \"*\" ]] && _quote='"'
+  [[ "${_value}" == \'*\' ]] && _quote="'"
+  printf '%s' "${_head}${_quote}${2}${_quote}$(_pin_rhs_tail "${_rhs}")"
+}
+
+# _pins_restore <backup> <file>
+#
+# Puts <file> back byte for byte from <backup> and removes the backup
+# (base#1676).
+_pins_restore() {
+  cp -p -- "${1}" "${2}"
+  rm -f -- "${1}"
+}
+
+# _pins_set_checksums <file> <specs> <digests>
+#
+# Writes each spec's ARG line with the matching digest (one per line in
+# <digests>, resolved earlier by _pins_checksum_digests) (base#1676).
+_pins_set_checksums() {
+  local _abs="${1}" _spec _arg _digest _ln _old _new_line
+  local -a _digs
+  mapfile -t _digs <<< "${3}"
+  local _k=0
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _digest="${_digs[_k++]}"
+    _ln="$(_pins_arg_lines "${_abs}" "${_arg}")"
+    _ln="${_ln%%:*}"
+    _old="$(awk -v n="${_ln}" 'NR == n' "${_abs}")"
+    _new_line="$(_pins_assign_line "${_old}" "${_digest}")" || return 1
+    _pins_commit "${_abs}" "${_ln}" "${_new_line}" || return 1
+  done
+}
+
+# _pins_verify_checksums <file> <specs> <digests>
+#
+# Reads every checksum ARG back from the file and fails, naming the ARG, when
+# its value is not the digest that was written (base#1676).
+_pins_verify_checksums() {
+  local _abs="${1}" _spec _arg _line _value _k=0
+  local -a _digs
+  mapfile -t _digs <<< "${3}"
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _line="$(_pins_arg_lines "${_abs}" "${_arg}")"
+    _line="${_line#*:}"
+    _value=""
+    if [[ "${_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
+      _value="$(_pin_rhs_value "${BASH_REMATCH[3]}")"
+      _value="${_value//[\"\']/}"
+    fi
+    if [[ "${_value}" != "${_digs[_k]}" ]]; then
+      printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
+        "${_arg}" "${_value}" "${_digs[_k]}" >&2
+      return 1
+    fi
+    _k=$((_k + 1))
+  done
+}
+
+# _pins_check_value <name> <version>
+#
+# Re-reads the pin and fails, naming both versions, when it is not <version>.
+_pins_check_value() {
+  local _check
+  _check="$(_pins_value "${1}")"
+  if [[ "${_check}" != "${2}" ]]; then
+    printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
+      "${1}" "${_check}" "${2}" >&2
+    return 1
+  fi
+}
+
+# _pins_check_checksum_args <file> <spec...>
+#
+# Every ARG a marker's sha256= option names must be declared exactly once in
+# the pin's own file; checked before any fetch or write, so a missing ARG
+# cannot leave "version bumped, digest stale" behind (base#1676).
+_pins_check_checksum_args() {
+  local _abs="${1}" _spec _arg _count
+  for _spec in ${2}; do
+    _arg="${_spec%%@*}"
+    _count="$(_pins_arg_lines "${_abs}" "${_arg}" | grep -c .)" || true
+    if [[ "${_count}" != 1 ]]; then
+      printf 'pins: %s ARG lines named %s in %s, expected exactly one\n' \
+        "${_count}" "${_arg}" "${_abs}" >&2
+      return 1
+    fi
+  done
+}
+
 # _pins_set <name> <version>
 #
 # Rewrite the pin's TARGET LINE, replacing the old version with the new one
@@ -467,7 +641,10 @@ _pins_set_golang() {
 # ARG's right-hand side, or the token after the coordinate), so a line that
 # also contains the old string elsewhere cannot be corrupted -- and the
 # result is verified by re-reading the pin, so a rewrite that did not take
-# fails here rather than in a green PR that changed nothing.
+# fails here rather than in a green PR that changed nothing. A pin whose
+# marker carries sha256= options also has each named checksum ARG rewritten
+# to the new version's digest in the same run; the file is restored when any
+# of those writes or read-backs fails (base#1676).
 _pins_set() {
   local _name="${1}" _new="${2}" _record
   _record="$(_pins_record "${_name}")"
@@ -475,9 +652,9 @@ _pins_set() {
     printf 'pins: no pin named %s\n' "${_name}" >&2
     return 1
   fi
-  local _state _n _resolver _coord _pattern _skip _current _file _line
+  local _state _n _resolver _coord _pattern _skip _current _file _line _cksum
   IFS=$'\t' read -r _state _n _resolver _coord _pattern _skip _current \
-    _file _line <<< "${_record}"
+    _file _line _cksum <<< "${_record}"
   if [[ "${_state}" != "${_PIN_STATE_PINNED}" ]]; then
     printf 'pins: %s is declared %s -- there is no version to set\n' \
       "${_name}" "${_state}" >&2
@@ -489,6 +666,22 @@ _pins_set() {
   fi
 
   local _abs="${PIN_REPO_ROOT}/${_file}"
+  local _has_ck=""
+  [[ -n "${_cksum}" && "${_cksum}" != "-" ]] && _has_ck=1
+  local _digests=""
+  # The checksum backup covers the pin's own file only, and a go.mod or
+  # golang bump also writes go.sum and other go.mod files, so sha256= is
+  # refused there before any fetch or write (base#1676).
+  if [[ -n "${_has_ck}" && ( "${_file##*/}" == go.mod \
+      || "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ) ]]; then
+    printf 'pins: %s: sha256= options are applied to a single-file pin only, not a go.mod or %s pin\n' \
+      "${_name}" "${_PIN_GO_DIRECTIVE_PIN}" >&2
+    return 1
+  fi
+  if [[ -n "${_has_ck}" ]]; then
+    _pins_check_checksum_args "${_abs}" "${_cksum}" || return 1
+    _digests="$(_pins_checksum_digests "${_new}" "${_cksum}")" || return 1
+  fi
   local _old_line _new_line
   _old_line="$(awk -v n="${_line}" 'NR == n' "${_abs}")"
   if [[ "${_file##*/}" == go.mod ]]; then
@@ -497,19 +690,13 @@ _pins_set() {
     # (base#1463). Neither rewrite below matches `require <path> <ver>`.
     _new_line="$(_pin_go_mod_set_line "${_abs}" "${_line}" "${_new}")" || return 1
   elif [[ "${_old_line}" =~ ${_PIN_ASSIGN_RE} ]]; then
-    local _head="${BASH_REMATCH[1]}" _rhs="${BASH_REMATCH[3]}"
-    local _quote="" _value _tail
-    _value="$(_pin_rhs_value "${_rhs}")"
     # Everything after the version -- the spacing and any trailing comment
     # -- is carried across verbatim. Rebuilding the line from the `NAME=`
     # prefix alone deletes it, and on a pin line that comment is normally
     # the reason the version is what it is ("held: 2.13 rejects our DL3059
     # usage"): exactly the sentence a reviewer of a bump proposal needs to
     # read, deleted by the bump itself.
-    _tail="$(_pin_rhs_tail "${_rhs}")"
-    [[ "${_value}" == \"*\" ]] && _quote='"'
-    [[ "${_value}" == \'*\' ]] && _quote="'"
-    _new_line="${_head}${_quote}${_new}${_quote}${_tail}"
+    _new_line="$(_pins_assign_line "${_old_line}" "${_new}")"
   else
     _new_line="${_old_line/${_coord}:${_current}/${_coord}:${_new}}"
     if [[ "${_new_line}" == "${_old_line}" ]]; then
@@ -522,23 +709,42 @@ _pins_set() {
     return 1
   fi
 
+  local _backup=""
   if [[ "${_file##*/}" == go.mod ]]; then
     _pins_set_go_mod "${_abs}" "${_line}" "${_new_line}" || return 1
   elif [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" ]]; then
     _pins_set_golang "${_current}" "${_new}" "${_abs}" "${_line}" "${_new_line}" || return 1
-  else
+  elif [[ -z "${_has_ck}" ]]; then
     _pins_commit "${_abs}" "${_line}" "${_new_line}" || return 1
+  else
+    # The version line and every checksum ARG named by the marker's sha256=
+    # options are written and read back, the version last, while a backup
+    # is held; any failure puts the file back byte for byte, so the new
+    # digest never stays beside the old version (base#1676).
+    if ! _backup="$(mktemp)" || ! cp -p -- "${_abs}" "${_backup}"; then
+      rm -f -- "${_backup}"
+      return 1
+    fi
+    if ! _pins_commit "${_abs}" "${_line}" "${_new_line}" \
+      || ! _pins_set_checksums "${_abs}" "${_cksum}" "${_digests}" \
+      || ! _pins_verify_checksums "${_abs}" "${_cksum}" "${_digests}" \
+      || ! _pins_check_value "${_name}" "${_new}"; then
+      _pins_restore "${_backup}" "${_abs}"
+      return 1
+    fi
+    rm -f -- "${_backup}"
   fi
-
-  local _check
-  _check="$(_pins_value "${_name}")"
-  if [[ "${_check}" != "${_new}" ]]; then
-    printf 'pins: %s reads back as %s after the rewrite, not %s\n' \
-      "${_name}" "${_check}" "${_new}" >&2
-    return 1
-  fi
+  [[ -n "${_has_ck}" ]] || _pins_check_value "${_name}" "${_new}" || return 1
   printf 'pins: %s %s -> %s (%s:%s)\n' \
     "${_name}" "${_current}" "${_new}" "${_file}" "${_line}"
+  # Each regenerated digest is recorded with where it came from (base#1676).
+  if [[ -n "${_has_ck}" ]]; then
+    local _spec
+    for _spec in ${_cksum}; do
+      printf 'pins: %s regenerated from %s\n' "${_spec%%@*}" "${_spec#*@}" \
+        | sed "s/{version}/${_new}/g"
+    done
+  fi
 }
 
 main() {

@@ -33,6 +33,7 @@
 # blank nor a comment, and the version lives on that target line:
 #
 #   # tool-pin: <name> <resolver> <coordinate> [pattern=<re>] [skip=<v>,...]
+#                [sha256=<ARG>@<source>]...
 #   ARG FOO_VERSION=1.2.3
 #
 #   # tool-pin: unpinned <name> -- <why it cannot be pinned here>
@@ -45,6 +46,12 @@
 # floats, and `check.sh` prints every one of them on every run, under its
 # own heading, forever. Silence is what the audit found; a floating
 # dependency that nobody has to be reminded of is how it got there.
+#
+# `sha256=<ARG>@<source>` (repeatable) names a checksum ARG in the same file
+# that must change with the version. `<source>` is `asset:<url>` (digest of
+# the downloaded asset) or `file:<url>:<asset>` (digest read from an upstream
+# checksum file); `{version}` in the url is the new version. `pins.sh --set`
+# regenerates every named ARG with the version (base#1676).
 #
 # `skip=<v>[,<v>...]` records a version this repo has deliberately refused.
 # It exists because of the opposite defect: dependabot never re-raises a
@@ -1263,7 +1270,7 @@ _pin_read() {
   local _root="${1}"
   local _file _abs _lineno _line _target _target_no _rest _list
   local _table="" _record
-  local _state _name _resolver _coord _pattern _skip _current
+  local _state _name _resolver _coord _pattern _skip _current _cksum
   local _marker_re _comment_re _gm_records _gm_rec
   local _gm_r_ln _gm_r_path _gm_r_ver _gm_r_cm
   local -a _fields=()
@@ -1311,6 +1318,7 @@ _pin_read() {
         fi
         _pattern=""
         _skip=""
+        _cksum=""
         case "${_fields[0]}" in
           "${_PIN_STATE_IGNORE}")
             _state="${_PIN_STATE_IGNORE}"
@@ -1344,6 +1352,13 @@ _pin_read() {
               case "${_kv}" in
                 pattern=*) _pattern="${_kv#pattern=}" ;;
                 skip=*)    _skip="${_kv#skip=}" ;;
+                sha256=*)
+                  if [[ "${_kv}" != sha256=*@?* ]]; then
+                    printf '%s:%d: pin %s sha256 option %s names no source (expected sha256=<ARG>@<source>)\n' \
+                      "${_file}" "${_lineno}" "${_name}" "${_kv}" >&2
+                    return 1
+                  fi
+                  _cksum+="${_cksum:+ }${_kv#sha256=}" ;;
                 *)
                   printf '%s:%d: pin %s carries unknown option %s\n' \
                     "${_file}" "${_lineno}" "${_name}" "${_kv}" >&2
@@ -1396,9 +1411,10 @@ _pin_read() {
         # is the honest column for `RUN apk add ...`.
         _current="$(_pin_assign_value "${_target}")" || _current=""
       fi
-      printf -v _record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n' \
+      printf -v _record '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n' \
         "${_state}" "${_name}" "${_resolver:--}" "${_coord:--}" \
-        "${_pattern:--}" "${_skip:--}" "${_current:--}" "${_file}" "${_target_no}"
+        "${_pattern:--}" "${_skip:--}" "${_current:--}" "${_file}" "${_target_no}" \
+        "${_cksum:--}"
       _table+="${_record}"
       _state=""
     done < "${_abs}"
@@ -1655,9 +1671,9 @@ _pin_go_minor() {
 _pin_go_directive_check() {
   local _root="${1}" _table _list _file _go_rec _go_ln _go_ver
   local _image="" _pin_mm _go_mm
-  local _state _name _resolver _coord _pattern _skip _current _pfile _pline
+  local _state _name _resolver _coord _pattern _skip _current _pfile _pline _pcksum
   _table="$(_pin_read "${_root}")" || return 1
-  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline; do
+  while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip _current _pfile _pline _pcksum; do
     if [[ "${_name}" == "${_PIN_GO_DIRECTIVE_PIN}" && "${_state}" == "${_PIN_STATE_PINNED}" ]]; then
       _image="${_current}"
     fi
