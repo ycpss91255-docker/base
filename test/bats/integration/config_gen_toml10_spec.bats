@@ -283,15 +283,18 @@ except RecursionError:
 # Dockerfile.toml-bridge and the files it COPYs, never from a floating tag
 # or from whatever TOML_BRIDGE_IMAGE names. The tag is a property of that
 # content, so it is not taken from the derivation the step itself calls:
-# the step runs twice, the second time after toml_bridge.py (a file the
-# Dockerfile COPYs) gains a comment line. Each run makes one `docker run`
-# naming a `toml-bridge:<12 hex>` image, the two tags differ, and
-# TOML_BRIDGE_IMAGE=toml-bridge:floating reaches neither run (review
-# rounds 1 and 3, base#1851).
+# the step runs three times, the second after toml_bridge.py (a file the
+# Dockerfile COPYs) gains a comment line, the third after
+# Dockerfile.toml-bridge alone gains one. Each run makes one `docker run`
+# naming a `toml-bridge:<12 hex>` image, the three tags all differ, and
+# TOML_BRIDGE_IMAGE=toml-bridge:floating reaches no run. A tag taken from
+# toml_bridge.py alone would let a Python pin change in the Dockerfile
+# reuse a warm runner's old image under the same tag (review rounds 1, 3
+# and 4, base#1851).
 @test "10-toml-oracle.sh: the container is the toml-bridge image tagged by the bridge sources' content, whatever TOML_BRIDGE_IMAGE says (base#1851)" {
   local -a _tags=()
   local _i _a _argv _tag
-  for _i in 1 2; do
+  for _i in 1 2 3; do
     rm -f -- "${S}"/docker.*.argv "${S}/docker.n"
     _oracle TOML_BRIDGE_IMAGE=toml-bridge:floating
     assert_success
@@ -307,10 +310,17 @@ except RecursionError:
     [[ "${_tag}" =~ ^toml-bridge:[0-9a-f]{12}$ ]] \
       || fail "run ${_i}: the docker run names ${_tag}, want toml-bridge:<12 hex>"
     _tags+=("${_tag}")
-    printf '# base#1851: a bridge source edit\n' >> "${R}/dockerfile/toml_bridge.py"
+    case "${_i}" in
+      1) printf '# base#1851: a bridge source edit\n' >> "${R}/dockerfile/toml_bridge.py" ;;
+      2) printf '# base#1851: a bridge Dockerfile edit\n' >> "${R}/dockerfile/Dockerfile.toml-bridge" ;;
+    esac
   done
   [[ "${_tags[0]}" != "${_tags[1]}" ]] \
-    || fail "both runs name ${_tags[0]}; a toml_bridge.py edit must change the tag"
+    || fail "runs 1 and 2 name ${_tags[0]}; a toml_bridge.py edit must change the tag"
+  [[ "${_tags[1]}" != "${_tags[2]}" ]] \
+    || fail "runs 2 and 3 name ${_tags[1]}; a Dockerfile.toml-bridge edit must change the tag"
+  [[ "${_tags[0]}" != "${_tags[2]}" ]] \
+    || fail "runs 1 and 3 name ${_tags[0]}; the two edits must not cancel out"
 }
 
 # why: When the pinned image cannot answer -- the container exits non-zero
