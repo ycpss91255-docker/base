@@ -127,6 +127,18 @@ _paths_as_nobody() {
   refute_line --regexp '^dockerfile/config-gen/.'
 }
 
+# why: `config-gen version` reports a digest the build stamps in
+# (base#2034, S3c-2 of base#1848). The config-gen-builder stage must take it
+# from a build argument and hand it to the linker as main.contentDigest. The
+# expected lines are the literals from the issue, not read back off the
+# Dockerfile.
+@test "testtools: the config-gen-builder stage stamps main.contentDigest from CONFIG_GEN_DIGEST (base#2034)" {
+  run sed -n '/^FROM .* AS config-gen-builder$/,/^FROM /p' "${DOCKERFILE}"
+  assert_success
+  assert_line 'ARG CONFIG_GEN_DIGEST='
+  assert_line 'RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -X main.contentDigest=${CONFIG_GEN_DIGEST}" -o /out/config-gen ./cmd/config-gen'
+}
+
 # ── the COPY nobody has added yet ──────────────────────────────────────
 
 # why: The load-bearing case. The alternative to deriving was a second
