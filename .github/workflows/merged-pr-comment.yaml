@@ -1,0 +1,24 @@
+name: Merged PR comment
+
+# GitHub never notifies an account about its own actions, and the owner
+# merges through the merge queue, so a merge leaves no event addressed to
+# the owner. This workflow fires when a pull request into main closes; the
+# comment it posts as the bot is the notification (base#2012).
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Announce the merge
+        run: echo "merged"
