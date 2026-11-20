@@ -64,6 +64,15 @@ setup() {
   [ "${output}" = '{"GH_TOKEN":"${{ github.token }}","REPO":"${{ github.repository }}","PR":"${{ github.event.pull_request.number }}","MERGE_SHA":"${{ github.event.pull_request.merge_commit_sha }}"}' ]
 }
 
+# why: Two merges close close together would run two jobs for different PRs
+# at once, and a queued run must not be cancelled, so the group is per PR and
+# never cancels (base#2012, #1014)
+@test "merged-pr-comment: the workflow declares a per-PR concurrency group that never cancels" {
+  run yq -o=json -I=0 '.concurrency' "${WF}"
+  assert_success
+  [ "${output}" = '{"group":"merged-pr-comment-${{ github.event.pull_request.number }}","cancel-in-progress":false}' ]
+}
+
 # _stub_gh -- a `gh` on PATH that logs every call to ${CALLS}, answers the
 # GraphQL read with ${GQL_FIXTURE}, answers the comment listing with
 # ${LIST_FIXTURE} ([] when unset) and keeps the body of `pr comment` in
