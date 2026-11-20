@@ -8521,7 +8521,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (13)
+### test/bats/unit/suite_prereq_spec.bats (17)
 
 | Test | Description |
 |------|-------------|
@@ -8535,8 +8535,12 @@ runs).
 | `prereq: HOST_GID alone missing is refused by that name (base#1423)` | the mirror case, and the one a HOST_UID-only check lets through: a run that set HOST_UID but not HOST_GID must still be refused. |
 | `prereq: every missing item is reported in a single refusal (base#1423)` | a person fixing a bare run should not have to rerun once per missing item; every gap is reported in the one refusal. |
 | `prereq: the system dispatch needs no .prev-release/tags.txt (base#1423)` | `just test system` and the System Test CI job run ci-system without the prev-release step, so the system dispatch never reads tags.txt. It must not be refused for it (HOST_UID / HOST_GID stay required). |
-| `prereq: a bare main --ci refuses by name before any phase runs (base#1423)` | the check is only worth anything if the in-container dispatch runs it before any phase. The cases above call the function directly, so an entry point that stopped calling it would still pass them all; this one drives `main --ci` itself, a bare container run of the whole suite with neither host id and no fixture, and every phase stubbed to a marker. |
+| `prereq: a bare main --ci refuses by name before any phase runs (base#1423)` | the check is only worth anything if the in-container dispatch runs it before any phase, against the checkout it is running in. The cases above call the function directly, so an entry point that stopped calling it, or called it on the wrong root, would still pass them all; this one drives `main --ci` of an isolated checkout, a bare container run of the whole suite with neither host id and no fixture. |
+| `prereq: main --ci with everything supplied in its checkout runs the suite (base#1423)` | the root main checks is the checkout it runs in. With the fixture and both ids supplied there, the whole-suite dispatch reaches its phase: a main that inspected any other root would be refused here. |
 | `prereq: main --ci --system with no fixture reaches the system phase (base#1423)` | the system exemption has to hold at the entry point, not only in the helper. A main that passed 0 instead of its --system flag would pass the helper-level case above while refusing every `just test system` run for a fixture that run never reads. Driven with both ids, no fixture. |
+| `prereq: main --ci --system with a host id missing is refused before the system phase (base#1423)` | the exemption is for the fixture only. A main that skipped the check altogether for --system would pass the case above; with one id missing, the system dispatch must still be refused by that id's name before its phase runs. Each id is removed on its own. |
+| `prereq: every coverage route of main --ci refuses a missing host id before its runner (base#1423)` | the coverage dispatches leave main through their own branches (COVERAGE_PATH, COVERAGE_LOCAL_JOBS, a shard, the serial run), and the coverage routing specs stand in for the check, so a main that skipped it on any one of those routes would pass them. Each route is driven here with HOST_GID missing and must be refused by that name before its runner starts. |
+| `prereq: a coverage route running the prev-release spec refuses a missing fixture (base#1423)` | the fixture half on the coverage routes that run the prev-release spec: the whole-suite coverage run and a COVERAGE_PATH naming that spec are refused for tags.txt before their runner starts. |
 | `prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)` | the system exemption covers the fixture only; the host ids are still demanded. |
 
 ### test/bats/unit/system_paths_spec.bats (9)
