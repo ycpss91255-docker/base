@@ -271,6 +271,12 @@ _seed_consumer() {
   _init="$(_released_entry init.sh)"
   ( cd "${CONSUMER}" && "${_init}" ) >/dev/null 2>&1 \
     || fail "${_tag}: its own ${_init} failed to bootstrap a consumer"
+  # SEED_ENV_LOCAL=1 stands in for a release that already ships the
+  # .env/.env.local convention (v0.43.0 or newer): its init.sh leaves an
+  # .env.local behind (base#1950).
+  if [[ "${SEED_ENV_LOCAL:-}" == 1 ]]; then
+    printf '# seeded by the released init.sh\n' > "${CONSUMER}/.env.local"
+  fi
   git -C "${CONSUMER}" add -A
   git -C "${CONSUMER}" commit -q -m "chore: bootstrap at ${_tag}"
 }
@@ -552,6 +558,9 @@ _assert_release_migrates_env() {
   _seed_current_remote
   _seed_released_remote "${_tag}"
   _seed_consumer "${_tag}"
+  # base#1950: the arm models a consumer that has only a hand-written .env;
+  # a newer seed may already carry .env.local, which would mask the migration.
+  rm -f "${CONSUMER}/.env.local"
 
   printf '# my machine\nROS_DOMAIN_ID=42\nAPI_TOKEN=secret\n' > "${CONSUMER}/.env"
 
@@ -1172,6 +1181,18 @@ _assert_upgrade_leaves_an_upgradable_tree() {
   local _tag
   _tag="$(_release_tag 1)"
   _assert_release_migrates_env "${_tag}"
+}
+
+# why: base#1950 -- once a released init.sh seeds .env.local itself, the
+# #868 arm would find that seeded file instead of the migrated one and go red
+# on a consumer the migration handled correctly; this pins the arm's own
+# pre-migration seed so the release can be tagged.
+@test "the #868 .env arm holds with a seed that already carries .env.local (#1950)" {
+  _window_written
+  _window_reaches 1 || return 0
+  local _tag
+  _tag="$(_release_tag 1)"
+  SEED_ENV_LOCAL=1 _assert_release_migrates_env "${_tag}"
 }
 
 # why: base#1163's loss was done BY the upgrade path, so it reached
