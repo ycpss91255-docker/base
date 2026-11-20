@@ -7,17 +7,26 @@
 #     -f dockerfile/Dockerfile.config-gen dockerfile/config-gen
 #
 # Nobody runs that by hand in the normal case. script/test/config_gen_gates.sh
-# (the runner `just test go` calls, in every environment) runs it, then
-# builds `final` and holds the binary to its usage contract.
+# (the runner `just test go` calls, in every environment) runs it with one
+# `--build-context <name>=<dir>` per directory its steps leave (mutation,
+# toml-oracle), then builds `final` and holds the binary to its usage
+# contract. Each of those names is also a stage below, so the command
+# above, given no context, reads that stage and pulls no image of that
+# name: admit then refuses it as config_gen_manifest_missing (base#1851).
 #
 # Stages:
 #   tools        golangci-lint and gremlins, each downloaded at a pinned
 #                version and checksum
-#   placeholder  the sentinel file the mutation stage copies
+#   placeholder  the sentinel files the mutation and toml-oracle stages copy
 #   mutation     FROM scratch: a sentinel file alone. The runner replaces this
 #                stage with `--build-context mutation=<dir>` (the host
 #                mutation baseline, base#1464); a build that was not given
 #                that context sees the sentinel instead (base#1465).
+#   toml-oracle  FROM scratch: a sentinel file alone. The runner replaces this
+#                stage with `--build-context toml-oracle=<dir>`, the
+#                10-toml-oracle step's verdicts.tsv (base#1851); a build that
+#                was not given it has no verdicts.tsv under /toml-oracle, and
+#                the differential test fails closed on that.
 #   goenv        the pinned Go image with GOTOOLCHAIN=local and bash; the
 #                base of admit, build and test
 #   admit        no Go: refuses a build that got no mutation context, printing
@@ -117,10 +126,13 @@ RUN case "${TARGETARCH}" in \
 # copied, not written by a COPY heredoc: config_gen_resolve's tag
 # derivation refuses a heredoc COPY source as unresolvable.
 FROM ${GO_IMAGE} AS placeholder
-RUN touch /no-mutation-context
+RUN touch /no-mutation-context /no-toml-oracle-context
 
 FROM scratch AS mutation
 COPY --from=placeholder /no-mutation-context /no-mutation-context
+
+FROM scratch AS toml-oracle
+COPY --from=placeholder /no-toml-oracle-context /no-toml-oracle-context
 
 FROM ${GO_IMAGE} AS goenv
 # ADR-00000039 lists GOTOOLCHAIN=local among the build flags: the pinned
@@ -131,6 +143,11 @@ FROM ${GO_IMAGE} AS goenv
 # It sits above SHELL because placed below it, hadolint reported SC3010
 # ([[ in POSIX sh) on the test stage's fmt RUN.
 ENV GOTOOLCHAIN=local
+# The live tomllib verdicts file internal/gate's differential reads
+# (base#1851); the test stage copies it there. Above SHELL for the same
+# SC3010 reason as GOTOOLCHAIN: placed in the test stage, hadolint
+# reported SC3010 on the fmt RUN.
+ENV CONFIG_GEN_TOML_ORACLE=/toml-oracle/verdicts.tsv
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 WORKDIR /src
 
@@ -161,6 +178,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM goenv AS test
 COPY --from=admit /admitted /admitted
 COPY --from=tools /usr/local/bin/golangci-lint /usr/local/bin/golangci-lint
+# tomllib's live verdicts, written by script/test/config_gen_steps/
+# 10-toml-oracle.sh and handed in by config_gen_gates.sh as the
+# `toml-oracle` build context, which replaces the toml-oracle stage
+# (base#1851); CONFIG_GEN_TOML_ORACLE (set in goenv) names
+# /toml-oracle/verdicts.tsv. The whole context is copied, so a build given
+# no context gets the stage's sentinel and no verdicts.tsv.
+COPY --from=toml-oracle / /toml-oracle/
 COPY --from=tools /usr/local/bin/gremlins /usr/local/bin/gremlins
 COPY . .
 # gofmt exits non-zero on a file it cannot parse (a _test.go syntax error
