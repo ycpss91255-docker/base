@@ -394,6 +394,40 @@ except RecursionError:
   done
 }
 
+# why: The verdicts file is tomllib's answer on the gate's whole input set
+# only when the step found every root's files. A root that is not there
+# (forms/, toml-test/ or the shared corpus removed), a root with no TOML
+# file in it (the corpus's one s1/a.toml removed), or a `find` that fails
+# after printing one real path, leaves a shorter list whose row count the
+# answer would still match, and the step would publish a partial oracle
+# (review round 2, base#1851). Each is one defect on setup()'s baseline,
+# and each must be refused before the container is asked, under the
+# five-point refusal test: status 1, nothing on stdout,
+# config_gen_toml_oracle_failed reason=inputs, no `docker run`, and no
+# toml-oracle/ directory.
+@test "10-toml-oracle.sh: a missing or empty input root, or a failed find, is config_gen_toml_oracle_failed reason=inputs before any docker run, no toml-oracle/ left (base#1851)" {
+  local _case
+  for _case in forms toml-test corpus corpus-empty find; do
+    rm -f -- "${S}"/docker.* "${S}/bin/find"
+    _plant forms/a.toml toml-test/valid/a.toml
+    _put 'a = 1' testdata/corpus/s1/a.toml
+    case "${_case}" in
+      forms) _unplant internal/gate/testdata/forms ;;
+      toml-test) _unplant internal/gate/testdata/toml-test ;;
+      corpus) _unplant testdata/corpus ;;
+      corpus-empty) _unplant testdata/corpus/s1/a.toml ;;
+      find) printf '#!%s\nprintf "%%s\\n" internal/gate/testdata/forms/a.toml\nexit 1\n' \
+              "$(command -v bash)" > "${S}/bin/find"
+            chmod +x "${S}/bin/find" ;;
+    esac
+    _oracle
+    assert_refusal 1 config_gen_toml_oracle_failed reason=inputs
+    assert_equal "${_case}:$(_run_calls)" "${_case}:0"
+    [[ ! -e "${S}/ctx/toml-oracle" ]] \
+      || fail "${_case}: a refused oracle run left ${S}/ctx/toml-oracle behind"
+  done
+}
+
 # why: Each verdict row is `<rel>\t<verdict>\t<sha256>`, and the
 # differential test keys it by path, so a path has to survive the tar,
 # the container's shell loop and the TSV unchanged. A name outside [A-Za-z0-9._/-] -- here
