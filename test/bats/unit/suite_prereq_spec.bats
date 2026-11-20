@@ -413,26 +413,35 @@ _assert_only_refused() {
   _assert_only_refused .prev-release/tags.txt
 }
 
+# why: the row a -e test on tags.txt lets through: a directory at that
+# path exists but is not the file the prev-release spec reads.
 @test "prereq: single fault: tags.txt a directory is refused alone (base#1423)" {
   _single_fault tags-dir
   _assert_only_refused .prev-release/tags.txt
 }
 
+# why: HOST_UID on its own, with HOST_GID set: a check that only looked
+# at HOST_GID, or named both ids for either, fails here.
 @test "prereq: single fault: HOST_UID unset is refused alone (base#1423)" {
   _single_fault uid-unset
   _assert_only_refused HOST_UID
 }
 
+# why: the row a -v test lets through: HOST_UID= is set but empty, and
+# compose's required-variable form refuses an empty value too.
 @test "prereq: single fault: HOST_UID empty is refused alone (base#1423)" {
   _single_fault uid-empty
   _assert_only_refused HOST_UID
 }
 
+# why: the mirror of the HOST_UID row: HOST_GID alone missing, with
+# HOST_UID set, must still be refused by its own name.
 @test "prereq: single fault: HOST_GID unset is refused alone (base#1423)" {
   _single_fault gid-unset
   _assert_only_refused HOST_GID
 }
 
+# why: the -v row for HOST_GID: set but empty is as unusable as unset.
 @test "prereq: single fault: HOST_GID empty is refused alone (base#1423)" {
   _single_fault gid-empty
   _assert_only_refused HOST_GID

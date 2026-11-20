@@ -8544,11 +8544,11 @@ runs).
 | `prereq: a coverage route running the prev-release spec refuses a missing fixture (base#1423)` | the fixture half on the coverage routes that run the prev-release spec: the whole-suite coverage run and a COVERAGE_PATH naming that spec are refused for tags.txt before their runner starts. |
 | `prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)` | the system exemption covers the fixture only; the host ids are still demanded. |
 | `prereq: single fault: tags.txt absent is refused alone (base#1423)` | the cases above mostly remove several prerequisites at once, so a check that tested the wrong thing for one of them (-e instead of -f on tags.txt, -v instead of a non-empty test on an id) could hide behind another fault in the same run. Each row below has exactly one fault, everything else valid, through the plain `main --ci` entry point. |
-| `prereq: single fault: tags.txt a directory is refused alone (base#1423)` | - |
-| `prereq: single fault: HOST_UID unset is refused alone (base#1423)` | - |
-| `prereq: single fault: HOST_UID empty is refused alone (base#1423)` | - |
-| `prereq: single fault: HOST_GID unset is refused alone (base#1423)` | - |
-| `prereq: single fault: HOST_GID empty is refused alone (base#1423)` | - |
+| `prereq: single fault: tags.txt a directory is refused alone (base#1423)` | the row a -e test on tags.txt lets through: a directory at that path exists but is not the file the prev-release spec reads. |
+| `prereq: single fault: HOST_UID unset is refused alone (base#1423)` | HOST_UID on its own, with HOST_GID set: a check that only looked at HOST_GID, or named both ids for either, fails here. |
+| `prereq: single fault: HOST_UID empty is refused alone (base#1423)` | the row a -v test lets through: HOST_UID= is set but empty, and compose's required-variable form refuses an empty value too. |
+| `prereq: single fault: HOST_GID unset is refused alone (base#1423)` | the mirror of the HOST_UID row: HOST_GID alone missing, with HOST_UID set, must still be refused by its own name. |
+| `prereq: single fault: HOST_GID empty is refused alone (base#1423)` | the -v row for HOST_GID: set but empty is as unusable as unset. |
 | `prereq: single fault: an empty tags.txt with both ids reaches the suite (base#1423)` | the control row: an empty tags.txt is "no release owed", not a fault, so with both ids set main reaches the suite. |
 | `prereq: each missing host id's hint names its own id command (base#1423)` | the refusal tells a bare container run how to supply each id, and HOST_UID is the uid (`id -u`) while HOST_GID is the gid (`id -g`). One hint naming `$(id -u\|-g)` for both is not a command anyone can paste. |
 
