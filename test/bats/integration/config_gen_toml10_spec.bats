@@ -386,6 +386,26 @@ except RecursionError:
   assert_output 1
 }
 
+# why: The build reads $CONFIG_GEN_CTX/toml-oracle as tomllib's answer
+# for this tree. When a later run cannot provision the image, the
+# verdicts an earlier run left there answer for files that may since
+# have changed, so the step must remove them before it refuses, as it
+# does for every other refusal after the directory exists. The first
+# run succeeds; the second, on the same CONFIG_GEN_CTX, has both inspect
+# and build fail (review round 5, base#1851).
+@test "10-toml-oracle.sh: an image failure after a successful run removes the earlier verdicts.tsv (base#1851)" {
+  _oracle
+  assert_success
+  [[ -f "${S}/ctx/toml-oracle/verdicts.tsv" ]] \
+    || fail "the first run left no verdicts.tsv"
+  printf '1\n' > "${S}/inspect.rc"
+  printf '1\n' > "${S}/build.rc"
+  _oracle
+  assert_refusal 1 config_gen_toml_oracle_failed reason=image
+  [[ ! -e "${S}/ctx/toml-oracle/verdicts.tsv" ]] \
+    || fail "an image failure left the earlier run's verdicts.tsv behind"
+}
+
 # why: A file's verdict is what the oracle program printed after tomllib
 # answered. An interpreter killed while it runs -- here a python3 first on
 # the stub's PATH that sends itself SIGKILL -- said nothing about the
