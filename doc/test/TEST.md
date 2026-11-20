@@ -32,6 +32,31 @@ sibling docs below.
 | [acceptance.md](acceptance.md) | `test/bats/acceptance/` -- consumer framework + UX, UAT/OAT (Acceptance level; host-driven via `script/ci/acceptance.sh` -- the `acceptance` job and `just test acceptance`, #785, base#1409) |
 | [smoke.md](smoke.md) | `dist/test/bats/smoke/` -- shipped per-stage build-time smoke templates (Smoke type) |
 
+## Running the suite without `just test`: prerequisites
+
+`just test` supplies two things before the suite starts. A bare
+container run (the test-tools image started directly, or a job that skips
+the host step) does not, and `test.sh --ci` refuses at once, naming each
+of these that is missing in a single message (event
+`ci_missing_prerequisite`):
+
+- `.prev-release/tags.txt`, produced on the host by
+  `script/test/prepare-prev-release.sh`. The previous-release upgrade spec
+  reads it. It is demanded when the dispatch can run that spec: the whole
+  suite (plain or coverage), a shard or the fragile set holding it, or a
+  path that contains it.
+  A `--filter` with no path always demands it, even when the regex
+  selects none of that spec's tests, because the regex is evaluated by
+  bats and not by the check; pass a path as well to narrow the run. It
+  may be empty (no release owed).
+- `HOST_UID` and `HOST_GID`, the uid and gid the suite hands the checkout
+  back to (`-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)`).
+
+A third need, a readable git repository for one pin-registry test, is
+neither supplied by `just test` nor checked up front: a worktree checkout
+mounted into the container has no readable `.git`, and refusing there
+would break supported runs. Reporting it by name is tracked in base#1996.
+
 ## Running one spec: `just test bats-path`
 
 ```bash

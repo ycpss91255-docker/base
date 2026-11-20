@@ -1180,13 +1180,36 @@ _validate_spec_target() {
 # is how the dispatch flags and the shard partition both name a spec.
 readonly _PREV_RELEASE_SPEC="test/bats/integration/prev_release_upgrade_spec.bats"
 
+# _normalize_repo_path <path>
+#   Echo <path> as the canonical repo-root-relative path that
+#   ${REPO_ROOT}/<path> opens: empty and `.` segments dropped, `..` folded
+#   into its parent. The root itself is the empty string.
+_normalize_repo_path() {
+  local -a _segs=() _kept=()
+  local _seg
+  IFS=/ read -ra _segs <<< "${1}"
+  for _seg in "${_segs[@]}"; do
+    case "${_seg}" in
+      ""|.) ;;
+      ..) if (( ${#_kept[@]} > 0 )); then unset '_kept[-1]'; fi ;;
+      *) _kept+=("${_seg}") ;;
+    esac
+  done
+  local IFS=/
+  printf '%s' "${_kept[*]}"
+}
+
 # _prev_release_spec_under <path>
 #   True when <path> -- a repo-root-relative file or directory, as
 #   `--bats-path` / `--coverage-path` name one -- selects that spec.
+#   Compared after normalising, because the dispatch hands bats
+#   ${REPO_ROOT}/<path> as spelled: `./test/...`, `test//bats/...` and
+#   `test/bats/unit/../integration/...` all open the same file (base#1423).
 _prev_release_spec_under() {
-  local _path="${1%/}"
+  local _path
+  _path="$(_normalize_repo_path "${1}")"
   # A target naming the root selects everything under it.
-  if [[ -z "${_path}" || "${_path}" == "." ]]; then
+  if [[ -z "${_path}" ]]; then
     return 0
   fi
   [[ "${_PREV_RELEASE_SPEC}" == "${_path}" \
@@ -1300,10 +1323,11 @@ _dispatch_needs_prev_release() {
     return
   fi
   if [[ -n "${BATS_FILTER:-}" ]]; then
-    # A bare filter runs bats over both directories. Its regex could still
-    # select none of that spec's tests, but the regex is bats' to evaluate
-    # and the conservative answer is the one that cannot hide a missing
-    # fixture.
+    # A bare filter runs bats over both directories, and its regex is
+    # bats' to evaluate, so a filter-only dispatch ALWAYS demands the
+    # fixture -- even one whose regex selects none of that spec's tests.
+    # The conservative answer is the one that cannot hide a missing
+    # fixture; doc/test/TEST.md states this rule for users.
     return 0
   fi
   if [[ -n "${BATS_UNIT_SHARD:-}" ]]; then
@@ -1321,6 +1345,49 @@ _dispatch_needs_prev_release() {
   # --bats-integration, --bats-only and bare `just test` all run the whole
   # integration directory.
   return 0
+}
+
+# _check_suite_prerequisites [root] [system]
+#   <system>=1 marks the `--system` dispatch (ci-system), which never reads
+#   .prev-release/tags.txt and is launched without the host prev-release
+#   step, so it is exempt from that fixture; HOST_UID / HOST_GID stay
+#   required.
+#   <root> is the checkout to inspect (default: REPO_ROOT; a spec passes a
+#   scratch tree because REPO_ROOT is readonly once this file is sourced).
+#   The in-container half of the prerequisites the host-side dispatch
+#   normally supplies (base#1423). A bare container run -- no `just test`
+#   in front of it -- has none of them, and used to find out only as the
+#   tests that read them failed, one test at a time, well into the run
+#   (each prev-release test naming the missing file). This moves that
+#   diagnosis ahead of every phase: every missing one is reported in a
+#   single refusal, by name.
+#
+#   .prev-release/tags.txt is demanded of a dispatch that can run the
+#   spec reading it (_dispatch_needs_prev_release replays this same
+#   dispatch), so a lint or single-spec run elsewhere is not refused for a
+#   fixture it never reads. A filter with no path is the one conservative
+#   case: it is always demanded, whatever the regex selects. The file
+#   must exist but may be empty:
+#   prepare-prev-release.sh writes it empty when no release is owed.
+_check_suite_prerequisites() {
+  local _root="${1:-${REPO_ROOT}}"
+  local _system="${2:-0}"
+  local -a _missing=()
+  if [[ "${_system}" != "1" ]] && _dispatch_needs_prev_release "${COVERAGE:-0}" \
+     && [[ ! -f "${_root}/.prev-release/tags.txt" ]]; then
+    _missing+=(".prev-release/tags.txt (run script/test/prepare-prev-release.sh on the host, or start the suite with 'just test')")
+  fi
+  local _var _id_flag
+  for _var in HOST_UID HOST_GID; do
+    [[ -n "${!_var:-}" ]] && continue
+    if [[ "${_var}" == "HOST_UID" ]]; then _id_flag=-u; else _id_flag=-g; fi
+    _missing+=("${_var} (the uid:gid the suite hands the checkout back to; 'just test' exports it, a bare container needs -e ${_var}=\$(id ${_id_flag}))")
+  done
+  (( ${#_missing[@]} == 0 )) && return 0
+  local _list
+  printf -v _list '%s; ' "${_missing[@]}"
+  _die ci_missing_prerequisite \
+    "the suite cannot start: missing prerequisite(s): ${_list%; }"
 }
 
 # _prepare_prev_release <coverage>
@@ -3205,6 +3272,7 @@ main() {
       # unable to run coverage again (base#1032). The reports are on disk
       # before the verdict is, so there is nothing to wait for.
       _HANDBACK_ARMED=1
+      _check_suite_prerequisites "" "${system}"
       if [[ "${system}" == "1" ]]; then
         _run_system
         return 0
