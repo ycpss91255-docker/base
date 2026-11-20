@@ -8521,7 +8521,7 @@ runs).
 | `stop.sh refuses a derived name when a configured checkout lost its cache (#1015)` | the other half of that shape, and the destructive one. A CONFIGURED checkout records its project name in the cache; with the cache gone and no name handed in, the derived `local-<basename>` is a name this checkout never ran under and, on a shared host, one another checkout may be running under right now -- so `down --remove-orphans` against it reports success having ended the wrong thing, or nothing. |
 | `stop.sh honours an ambient PROJECT_NAME with no .env.generated to read (#1015)` | the seam `just test stop` uses -- the caller that already knows the name hands it over, so no second derivation exists to drift. |
 
-### test/bats/unit/suite_prereq_spec.bats (8)
+### test/bats/unit/suite_prereq_spec.bats (11)
 
 | Test | Description |
 |------|-------------|
@@ -8529,9 +8529,12 @@ runs).
 | `prereq: everything supplied passes (base#1423)` | with the fixture and both host ids present the check is silent and succeeds, so a refusal is never the price of a correctly supplied run. |
 | `prereq: an empty .prev-release/tags.txt (no release owed) passes (base#1423)` | prepare-prev-release.sh writes tags.txt empty on purpose when no stable release falls inside the window (base#1055), and the prev-release spec only needs the file to exist. An empty file means "no release owed", not "fixture missing", so it must not be refused. |
 | `prereq: missing HOST_UID and HOST_GID are each named (base#1423)` | the four compose tests need HOST_UID and HOST_GID (compose interpolates them with a required-variable form). A bare container has neither, and the check must say so by variable name rather than let the compose tests fail one by one. |
+| `prereq: HOST_UID alone missing is refused by that name (base#1423)` | each id is its own requirement. Unsetting both together would let a check that only looks at HOST_UID (and names both) pass, while a run missing only HOST_GID got through; each is removed on its own here, with the other supplied, on both the plain and the system dispatch. |
+| `prereq: HOST_GID alone missing is refused by that name (base#1423)` | - |
 | `prereq: every missing item is reported in a single refusal (base#1423)` | a person fixing a bare run should not have to rerun once per missing item; every gap is reported in the one refusal. |
 | `prereq: the system dispatch needs no .prev-release/tags.txt (base#1423)` | `just test system` and the System Test CI job run ci-system without the prev-release step, so the system dispatch never reads tags.txt. It must not be refused for it (HOST_UID / HOST_GID stay required). |
 | `prereq: a bare main --ci refuses by name before any phase runs (base#1423)` | the check is only worth anything if the in-container dispatch runs it before any phase. The cases above call the function directly, so an entry point that stopped calling it would still pass them all; this one drives `main --ci` itself, a bare container run of the whole suite with neither host id and no fixture, and every phase stubbed to a marker. |
+| `prereq: main --ci --system with no fixture reaches the system phase (base#1423)` | the system exemption has to hold at the entry point, not only in the helper. A main that passed 0 instead of its --system flag would pass the helper-level case above while refusing every `just test system` run for a fixture that run never reads. Driven with both ids, no fixture. |
 | `prereq: the system dispatch still requires HOST_UID and HOST_GID (base#1423)` | the system exemption covers the fixture only; the host ids are still demanded. |
 
 ### test/bats/unit/system_paths_spec.bats (9)

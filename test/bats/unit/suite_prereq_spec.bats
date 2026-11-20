@@ -90,6 +90,44 @@ _seed_tags() {
   assert_output --partial "HOST_GID"
 }
 
+# _one_id_missing <unset-var> <system>: the check with the fixture seeded,
+# one host id removed and the other supplied.
+_one_id_missing() {
+  _seed_tags
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      HOST_UID=1000 HOST_GID=1000 DROP="${1}" \
+      FAKE_ROOT="${FAKE_ROOT}" SYSTEM="${2}" bash -c '
+    unset "${DROP}"
+    source /source/script/test/test.sh
+    _check_suite_prerequisites "${FAKE_ROOT}" "${SYSTEM}"
+  '
+}
+
+# why: each id is its own requirement. Unsetting both together would let a
+# check that only looks at HOST_UID (and names both) pass, while a run
+# missing only HOST_GID got through; each is removed on its own here, with
+# the other supplied, on both the plain and the system dispatch.
+@test "prereq: HOST_UID alone missing is refused by that name (base#1423)" {
+  local _sys
+  for _sys in 0 1; do
+    _one_id_missing HOST_UID "${_sys}"
+    assert_failure
+    assert_output --partial "HOST_UID"
+    refute_output --partial "HOST_GID"
+  done
+}
+
+@test "prereq: HOST_GID alone missing is refused by that name (base#1423)" {
+  local _sys
+  for _sys in 0 1; do
+    _one_id_missing HOST_GID "${_sys}"
+    assert_failure
+    assert_output --partial "HOST_GID"
+    refute_output --partial "HOST_UID"
+  done
+}
+
 # why: a person fixing a bare run should not have to rerun once per missing
 # item; every gap is reported in the one refusal.
 @test "prereq: every missing item is reported in a single refusal (base#1423)" {
@@ -152,6 +190,34 @@ _seed_tags() {
   assert_output --partial "HOST_UID"
   assert_output --partial "HOST_GID"
   assert [ ! -e "${_log}" ]
+}
+
+# why: the system exemption has to hold at the entry point, not only in
+# the helper. A main that passed 0 instead of its --system flag would pass
+# the helper-level case above while refusing every `just test system` run
+# for a fixture that run never reads. Driven with both ids, no fixture.
+@test "prereq: main --ci --system with no fixture reaches the system phase (base#1423)" {
+  local _log="${BATS_TEST_TMPDIR}/phases.log"
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u BATS_INTEGRATION -u BATS_ONLY -u COVERAGE -u COVERAGE_PATH \
+      -u COVERAGE_SHARD -u COVERAGE_LOCAL_JOBS -u LINT_ONLY -u LINT_TOOL \
+      -u LINT_GROUP HOST_UID=1000 HOST_GID=1000 \
+      FAKE_ROOT="${FAKE_ROOT}" PHASE_LOG="${_log}" bash -c '
+    source /source/script/test/test.sh
+    eval "$(declare -f _check_suite_prerequisites \
+      | sed "1s/_check_suite_prerequisites/_real_check_suite_prerequisites/")"
+    _check_suite_prerequisites() { _real_check_suite_prerequisites "${FAKE_ROOT}" "${2:-0}"; }
+    _run_all_lint_tools() { echo lint >> "${PHASE_LOG}"; }
+    _run_tests()          { echo bats >> "${PHASE_LOG}"; }
+    _run_coverage()       { echo coverage >> "${PHASE_LOG}"; }
+    _run_system()         { echo system >> "${PHASE_LOG}"; }
+    _fix_permissions()    { :; }
+    main --ci --system
+  '
+  assert_success
+  refute_output --partial "ci_missing_prerequisite"
+  run cat "${_log}"
+  assert_output "system"
 }
 
 # why: the system exemption covers the fixture only; the host ids are

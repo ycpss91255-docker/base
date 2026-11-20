@@ -71,16 +71,27 @@ teardown() {
 # why: the same hole on the other phase that writes into the mounted checkout
 @test "main --ci --system: a FAILING system phase still hands the checkout back (base#1032)" {
   local _log="${BATS_TEST_TMPDIR}/handback.log"
-  run bash -c '
+  # Both host ids are supplied so the run gets past the bare-run
+  # prerequisite check (base#1423); the system dispatch needs no fixture.
+  # The selectors this spec itself runs under are cleared, so the check
+  # sees the whole-suite dispatch a lost --system flag would turn this into.
+  run env -u BATS_FILE -u BATS_FILTER -u BATS_UNIT_SHARD -u BATS_FRAGILE \
+      -u COVERAGE -u COVERAGE_PATH -u COVERAGE_SHARD -u LINT_ONLY \
+      HOST_UID=1000 HOST_GID=1000 bash -c '
     source /source/script/test/test.sh
     set -eo pipefail
-    _run_system()      { return 1; }
+    _run_system()      { printf "SYSTEM_RAN\n" >> "'"${_log}"'"; return 1; }
     _fix_permissions() { printf "HANDBACK\n" >> "'"${_log}"'"; }
     trap _test_exit_reclaim EXIT
     main --ci --system
   '
   assert_failure
   assert [ -f "${_log}" ]
+  # As in the coverage case: a prerequisite refusal also exits non-zero and
+  # trips the handback, so the red must be shown to come from the phase.
+  run cat "${_log}"
+  assert_line "SYSTEM_RAN"
+  assert_line "HANDBACK"
 }
 
 # why: a handback that could change the verdict would be reporting on the run
