@@ -154,12 +154,12 @@ _run_pin_coverage() {
     return 1
   fi
 
-  local _state _name _resolver _coord _pattern _skip _current _file _line
+  local _state _name _resolver _coord _pattern _skip _current _file _line _cksum
   local _pinned=0 _unpinned=0 _known _r
   local -A _seen=()
   local -a _bad_resolver=() _duplicate=()
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
-      _current _file _line; do
+      _current _file _line _cksum; do
     # An empty table still yields one empty record through a here-string,
     # and an empty name is not a subscript.
     [[ -z "${_name}" ]] && continue
@@ -258,7 +258,7 @@ which is not a third-party version. See script/watch/lib.sh."
   _tt_has_arg() { grep -qE "^ARG ${1}=.+" "${REPO_ROOT}/${_tt_file}"; }
   local -a _unverified=()
   while IFS=$'\t' read -r _state _name _resolver _coord _pattern _skip \
-      _current _file _line; do
+      _current _file _line _cksum; do
     [[ -z "${_name}" ]] && continue
     [[ "${_state}" == "${_PIN_STATE_PINNED}" ]] || continue
     [[ "${_resolver}" == "github-release" ]] || continue

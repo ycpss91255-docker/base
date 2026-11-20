@@ -118,6 +118,8 @@ It owns the following:
 
 Docker build, save and run, host detection, the TUI screens, INI tokenizing (the legacy chain and the converter's input) and Dockerfile parsing stay in shell.
 
+*Amended by ADR-00000041 (#1561, 2026-11-18): only the docker wrappers, the host probes and the bootstrap stay in shell; INI, Dockerfile, version, gitignore, drift and host-fact parsing move to Go, and the TUI is excluded.*
+
 **Preserved behaviour.** Every row of the #1407 compatibility matrix is preserved: absent layer skipped, partial layer merged by key, unknown array refused, legacy-alias un-inherit, stage tables, empty versus absent, and the accepted scalar spellings. The string-or-number fields (ports, volume sources) and a date in a string field render as the bridge renders them today. Key order inside each array-of-tables entry follows the document. A golden test pins that order, because both earlier Go ports reordered these keys. A field-less array-of-tables entry (`{}`), which the converter and the writers' padding use to spell a cleared slot, stays legal and is kept as one empty entry (#1309). So does an entry whose fields are all present but empty. Only a non-empty entry that lacks its family's gating field is refused, as `toml_bridge.py`'s `_check_entry` refuses it today.
 
 **Behaviour that changes on purpose:**
