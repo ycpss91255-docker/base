@@ -1006,6 +1006,117 @@ STUB
   assert_output 1
 }
 
+# ── the commit-attribution leg (base#1989) ───────────────────────────────────
+
+# The co-author trailer the attribution check refuses, built from parts so
+# the repo's own attribution guards do not fire on this file.
+_attributed_message() {
+  printf 'feat: x\n\n%s-%s-%s: %s%s X <%s@%s.%s>' \
+    Co Authored By Cla ude noreply anthropic com
+}
+
+# _commit_attribution_check <repo>: copy the attribution check into the
+# mirror repo and commit it, so the leg has a check to run.
+_commit_attribution_check() {
+  cp /source/script/ci/check_commit_attribution.sh "$1/script/ci/"
+  git -C "$1" -c user.name=t -c user.email=t@t add -A
+  git -C "$1" -c user.name=t -c user.email=t@t commit -q -m "chore: add the check"
+}
+
+# why: The mirror attests the commit-attribution job through
+# `--commit-attribution`. A body that returned 0 without running the check
+# left every other spec green, so the leg could pass a branch CI fails. A
+# commit after the base carrying the co-author trailer must make the leg
+# exit non-zero and name that commit's sha.
+@test "pre-PR mirror: --commit-attribution fails a commit after the base that carries the co-author trailer (base#1989)" {
+  _require_mirror
+  local _base _bad _r="${SCRATCH}/repo"
+  _base="$(_make_mirror_repo)"
+  _commit_attribution_check "${_r}"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
+    -m "$(_attributed_message)"
+  _bad="$(git -C "${_r}" rev-parse HEAD)"
+  run env PRE_PR_MIRROR_BASE="${_base}" "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "::error::commit ${_bad}"
+}
+
+# why: A run with `--base X` hands X to every planned command as
+# PRE_PR_MIRROR_BASE. Without it the attribution leg fell back to
+# origin/main and walked commits a PR from X would never carry, and no
+# spec noticed. Here the offender is the base itself and origin/main points
+# below it, so only a leg that walks <base>..HEAD passes.
+@test "pre-PR mirror: --base hands its base to the commit-attribution leg, not origin/main (base#1989)" {
+  _require_mirror
+  local _root _base _real _r="${SCRATCH}/repo"
+  _real="$(command -v bash)"
+  _root="$(_make_mirror_repo)"
+  cp /source/script/ci/check_commit_attribution.sh "${_r}/script/ci/"
+  git -C "${_r}" -c user.name=t -c user.email=t@t add -A
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q \
+    -m "$(_attributed_message)"
+  _base="$(git -C "${_r}" rev-parse HEAD)"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "fix: clean"
+  git -C "${_r}" update-ref refs/remotes/origin/main "${_root}"
+  mkdir -p "${SCRATCH}/bin"
+  cat > "${SCRATCH}/bin/bash" <<STUB
+#!${_real}
+if [[ "\${1:-}" == -c ]]; then
+  printf '%s\n' "\${2}" >> "${SCRATCH}/ran"
+  [[ "\${2}" == *--commit-attribution* ]] && exec "${_real}" -c "\${2}"
+  exit 0
+fi
+exec "${_real}" "\$@"
+STUB
+  chmod +x "${SCRATCH}/bin/bash"
+  _stub_docker x86_64
+  run env -u PRE_PR_MIRROR_BASE PATH="${SCRATCH}/bin:${PATH}" "${_real}" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --base "${_base}"
+  assert_success
+  refute_output --partial "::error::commit"
+  grep -qF -- '--commit-attribution' "${SCRATCH}/ran" \
+    || fail "the run never planned the commit-attribution leg"
+}
+
+# why: Run on its own, with no PRE_PR_MIRROR_BASE, the attribution leg
+# walks origin/main..HEAD, the commits a PR from HEAD would carry. Dropping
+# that default left every other spec green, since each one hands the leg a
+# base. Here origin/main sits below an offending commit, so only a leg that
+# falls back to origin/main reaches the offender and names its sha.
+@test "pre-PR mirror: --commit-attribution with no base walks origin/main..HEAD (base#1989)" {
+  _require_mirror
+  local _root _bad _r="${SCRATCH}/repo"
+  _root="$(_make_mirror_repo)"
+  _commit_attribution_check "${_r}"
+  git -C "${_r}" -c user.name=t -c user.email=t@t commit -q --allow-empty \
+    -m "$(_attributed_message)"
+  _bad="$(git -C "${_r}" rev-parse HEAD)"
+  git -C "${_r}" update-ref refs/remotes/origin/main "${_root}"
+  run env -u PRE_PR_MIRROR_BASE "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "::error::commit ${_bad}"
+}
+
+# why: A base that names no commit is a mistake in the mirror's own
+# input, so the leg refuses it there and names it. A leg that dropped the
+# guard handed an empty BASE_SHA to the check, which failed on its own
+# variable, and the reader never learned which base was wrong. So a base
+# that does not resolve must fail, name the base, and stop before the check
+# runs (no BASE_SHA in the output).
+@test "pre-PR mirror: --commit-attribution with a base that does not resolve fails naming the base (base#1989)" {
+  _require_mirror
+  local _r="${SCRATCH}/repo"
+  _make_mirror_repo >/dev/null
+  _commit_attribution_check "${_r}"
+  run env PRE_PR_MIRROR_BASE=no-such-base "$(command -v bash)" \
+      "${_r}/script/ci/pre_pr_mirror.sh" --commit-attribution
+  assert_failure
+  assert_output --partial "pre_pr_mirror: no-such-base does not resolve to a commit"
+  refute_output --partial "BASE_SHA"
+}
+
 # ── the required-kill roster in the no-flag `just test` (base#1461) ──────────
 #
 # The mirror attests the roster through `just test`, so the no-flag
