@@ -70,3 +70,170 @@ _config_gen_tool_image_preflight() {
 config_gen_resolve() {
   tool_image_resolve config_gen
 }
+
+# _config_gen_decode_frames <errfile> <name>
+#   Re-emit each 8-field NUL frame the binary wrote to <errfile>
+#   (tag, severity, event, file, line, col, key, text) as one config_gen
+#   log record (base#1470). A frame that is not one -- a tag other than D,
+#   an event id the registry does not know, fewer than 8 fields, or a
+#   last field cut off before its NUL -- is refused as
+#   config_gen_diag_malformed with reason=. Unframed text -- ahead of a
+#   frame's tag, or left after the last frame with no NUL -- is forwarded
+#   once as config_gen_stray_stderr; the decoder cannot tell whether
+#   docker or the binary wrote it. Answers 1 when <errfile> held no frame.
+_config_gen_decode_frames() {
+  local -a _f=()
+  local _field="" _n=0
+  while IFS= read -r -d '' _field; do
+    # Unframed text on the stream (such as a platform WARNING line) runs
+    # into the next frame's tag; it is forwarded once and the frame keeps
+    # its D tag (base#1470).
+    if ((${#_f[@]} == 0)) && [[ "${_field}" == *$'\n'D ]]; then
+      _config_gen_stray_stderr "${_field%$'\n'D}" "$2"
+      _field=D
+    fi
+    _f+=("${_field}")
+    _field=""
+    if ((${#_f[@]} == 8)); then
+      if [[ "${_f[0]}" != D ]]; then
+        _config_gen_diag_malformed tag "$2"
+      elif ! _log_is_registered "${_f[2]}"; then
+        _config_gen_diag_malformed unregistered "$2"
+      else
+        _log_err config_gen "${_f[2]}" "display=${_f[7]}" \
+          "file=${_f[3]}" "line=${_f[4]}" "col=${_f[5]}" "key=${_f[6]}" \
+          "text=${_f[7]}"
+      fi
+      _f=()
+      _n=$((_n + 1))
+    fi
+  done < "$1"
+  # A started frame left open: its last field lacks a NUL (truncated) or
+  # it has fewer than 8 fields (count). With no frame open, bytes the
+  # failed read left in _field carry no NUL: they are unframed text,
+  # forwarded once, never a frame (base#1470).
+  if ((${#_f[@]} == 0)); then
+    [[ -z "${_field}" ]] || _config_gen_stray_stderr "${_field%$'\n'}" "$2"
+  else
+    if [[ -n "${_field}" ]]; then
+      _config_gen_diag_malformed truncated "$2"
+    else
+      _config_gen_diag_malformed count "$2"
+    fi
+    _n=$((_n + 1))
+  fi
+  ((_n > 0))
+}
+
+# _config_gen_stray_stderr <text> <name>
+#   Forward unframed stderr <text> (no frame says who wrote it) as one
+#   config_gen_stray_stderr record; <name> is the file config_gen_tables
+#   was given (base#1470).
+_config_gen_stray_stderr() {
+  _log_err config_gen config_gen_stray_stderr \
+    "display=config_gen_tables: unframed stderr for ${2}: ${1}" \
+    "file=$2" "text=$1"
+}
+
+# _config_gen_diag_malformed <reason> <name>
+#   The refusal for a diagnostic stream that is not an 8-field D frame;
+#   <name> is the file config_gen_tables was given (base#1470).
+_config_gen_diag_malformed() {
+  _log_err config_gen config_gen_diag_malformed \
+    "display=config_gen_tables: the diagnostic stream for ${2} is not an 8-field NUL frame (${1})" \
+    "file=${2}" "reason=$1"
+}
+
+# config_gen_tables <file> <outvar>
+#   Run `config-gen tables` on <file> (base#1470). <outvar> is cleared on
+#   entry, so a failed run publishes nothing; the binary's status is the
+#   answer and its diagnostics are re-emitted.
+config_gen_tables() {
+  # Exactly <file> and an identifier <outvar>, checked before the nameref
+  # binds; rc 2 is the binary's own usage status. A nameref binds to the
+  # nearest variable of its name, so every local here is under _cgt_ and
+  # an outvar under that prefix is refused: no other name can resolve to
+  # one of this function's locals (base#1470).
+  if (($# != 2)) || [[ ! "$2" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+    || [[ "$2" == _cgt_* ]]; then
+    _log_err config_gen config_gen_usage_invalid \
+      "display=config_gen_tables: usage: config_gen_tables <file> <outvar>"
+    return 2
+  fi
+  local -n _cgt_out="$2"
+  _cgt_out=""
+  config_gen_resolve || return 1
+  # docker's --mount value is comma-separated and cannot carry a
+  # newline, so such a name is refused before any container (base#1470).
+  if [[ "$1" == *[,$'\n']* ]]; then
+    _log_err config_gen config_gen_path_unmountable \
+      "display=config_gen_tables: $1 cannot be named in a docker --mount (it holds a comma or newline)" \
+      "file=$1"
+    return 1
+  fi
+  # A stat only: the host never opens the path, and a missing src must
+  # not reach `docker run` (base#1470).
+  if [[ ! -e "$1" && ! -L "$1" ]]; then
+    _log_err config_gen no_such_file \
+      "display=config_gen_tables: no such file: $1" "file=$1"
+    return 1
+  fi
+  # The mount src is the parent's physical path: `cd -P` applies each
+  # `..` to the physical directory, as the kernel's own walk of the name
+  # does, so the mounted file is the named one; `&&` turns a failing cd
+  # into a refusal instead of `/<base>`; the trailing `x` keeps a newline
+  # that ends the path. A symlinked parent whose target holds a comma or
+  # newline is then refused by the second guard. A bare name's parent is
+  # `.`; a name directly under / cuts to an empty parent, which is `/`,
+  # and the root's own `/` is dropped before the basename is appended, so
+  # the src is `/name`, not `//name` (base#1470).
+  local _cgt_dir="${1%/*}" _cgt_abs
+  [[ "$1" == */* ]] || _cgt_dir=.
+  [[ -n "${_cgt_dir}" ]] || _cgt_dir=/
+  _cgt_abs="$(CDPATH='' cd -P -- "${_cgt_dir}" && pwd -P && printf x)"
+  if [[ "${_cgt_abs}" != *$'\nx' ]]; then
+    _log_err config_gen no_such_file \
+      "display=config_gen_tables: no such file: $1" "file=$1"
+    return 1
+  fi
+  _cgt_abs="${_cgt_abs%$'\nx'}"
+  [[ "${_cgt_abs}" != / ]] || _cgt_abs=""
+  _cgt_abs+="/${1##*/}"
+  if [[ "${_cgt_abs}" == *[,$'\n']* ]]; then
+    _log_err config_gen config_gen_path_unmountable \
+      "display=config_gen_tables: $1 cannot be named in a docker --mount (its path ${_cgt_abs} holds a comma or newline)" \
+      "file=$1"
+    return 1
+  fi
+  local _cgt_tmp _cgt_rc=0
+  _cgt_tmp="$(mktemp -d)"
+  docker run --rm --user "$(id -u):$(id -g)" \
+    --mount "type=bind,src=${_cgt_abs},dst=/in/f,readonly" \
+    "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
+    > "${_cgt_tmp}/out" 2> "${_cgt_tmp}/err" || _cgt_rc=$?
+  # A non-zero status with no diagnostic frame is refused on what is
+  # observed: the status, and no frame. Any such run lands here, whether
+  # docker or the binary wrote its stderr (base#1470).
+  if ! _config_gen_decode_frames "${_cgt_tmp}/err" "$1" && ((_cgt_rc != 0)); then
+    _log_err config_gen config_gen_run_failed \
+      "display=config_gen_tables: the run for $1 failed with status ${_cgt_rc} and no diagnostic frame" \
+      "file=$1" "status=${_cgt_rc}"
+  fi
+  if ((_cgt_rc == 0)); then
+    # A bash variable cannot hold a NUL, so a table list carrying one is
+    # refused instead of published truncated: `read -d ''` succeeds only
+    # when it meets a NUL, and at EOF leaves the whole list in _cgt_list
+    # (base#1470).
+    local _cgt_list
+    if IFS= read -r -d '' _cgt_list < "${_cgt_tmp}/out"; then
+      _log_err config_gen config_gen_output_nul \
+        "display=config_gen_tables: the table list of $1 holds a NUL byte, which a shell variable cannot carry" \
+        "file=$1"
+      _cgt_rc=1
+    else
+      _cgt_out="${_cgt_list}"
+    fi
+  fi
+  rm -rf -- "${_cgt_tmp}"
+  return "${_cgt_rc}"
+}

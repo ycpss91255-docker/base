@@ -99,6 +99,7 @@ _warn_ports_inert() {
 _SHM_SIZE_INERT_WARNED=0
 _NETWORK_NAME_INERT_WARNED=0
 _LIFECYCLE_RESTART_INVALID_WARNED=0
+_LIFECYCLE_INIT_INVALID_WARNED=0
 
 # _warn_shm_size_inert <shm_size> <ipc_mode>
 #
@@ -154,9 +155,11 @@ _warn_invalid_lifecycle_restart() {
 # _warn_invalid_lifecycle_init <value>
 #
 # Same message shape as _warn_invalid_lifecycle_restart, for [lifecycle] init
-# (base#1651). Unlike the restart one this is not latched.
+# (base#1651). Latched once per emit like the restart one (base#1660).
 _warn_invalid_lifecycle_init() {
   local _value="${1-}"
+  (( _LIFECYCLE_INIT_INVALID_WARNED )) && return 0
+  _LIFECYCLE_INIT_INVALID_WARNED=1
   _log_warn setup lifecycle_init_invalid \
     "display=$(_setup_msg lifecycle init_invalid) (init=${_value})" "init=${_value}"
 }
@@ -185,6 +188,7 @@ _reset_inert_warnings() {
   _SHM_SIZE_INERT_WARNED=0
   _NETWORK_NAME_INERT_WARNED=0
   _LIFECYCLE_RESTART_INVALID_WARNED=0
+  _LIFECYCLE_INIT_INVALID_WARNED=0
   _NETWORK_NAME_JOINED=0
 }
 

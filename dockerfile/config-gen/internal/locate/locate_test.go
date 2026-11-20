@@ -231,7 +231,9 @@ func TestIndexBareKeyEveryAllowedByte(t *testing.T) {
 // 108,952 calls that scanned about 5.9e9 bytes, and the race gate's go
 // test ran into its 10-minute timeout on it. An input of at most this
 // many bytes is swept in full; a larger one is indexed at its cut points.
-const prefixSweepBound = 4096
+// base#1655 lowered the bound from 4096 to 1024: every corpus file but
+// large_tables.toml is at most 684 bytes, so it is still swept in full.
+const prefixSweepBound = 1024
 
 // cutContextLines is the most lines before a cut that a larger input's
 // cut window starts from (see cutWindows). The window is then cut to its
@@ -371,6 +373,58 @@ func TestCutWindowsEndEverywhereAtBoundedCost(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB holds the swept head to
+// 1024 bytes (base#1655): an input of 2000 bytes has every whole prefix up
+// to byte 1024, and past it no window starts at the input's start, so each
+// is cut to its last cutContextBytes bytes and the sweep stays linear.
+func TestCutWindowsSweepsWholePrefixesOnlyUpToOneKiB(t *testing.T) {
+	const bound = 1024
+	src := []byte(strings.Repeat("value = 0\n", 200))
+	if len(src) != 2000 {
+		t.Fatalf("src is %d bytes, want 2000", len(src))
+	}
+	for _, w := range cutWindows(src) {
+		if w.from == 0 && w.end > bound && w.end < len(src) {
+			t.Fatalf("window [0,%d) is a whole prefix past %d bytes, want it cut to its last %d bytes", w.end, bound, cutContextBytes)
+		}
+	}
+}
+
+// TestCutWindowsSmallCorpusFilesAreSweptWhole holds every corpus TOML file
+// of at most 684 bytes (base#1655: all of them but large_tables.toml) to
+// being swept in full under the lowered bound: the windows are exactly the
+// whole prefixes [0,n) for n from 0 to the file's length, so every byte
+// offset is where a window ends and no verdict on these files can change.
+func TestCutWindowsSmallCorpusFilesAreSweptWhole(t *testing.T) {
+	const smallCorpusMax = 684
+	checked := 0
+	for _, file := range CorpusTOML(t) {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(src) > smallCorpusMax {
+			continue
+		}
+		checked++
+		if len(src) > prefixSweepBound {
+			t.Fatalf("%s is %d bytes, more than prefixSweepBound (%d)", file, len(src), prefixSweepBound)
+		}
+		got := cutWindows(src)
+		if len(got) != len(src)+1 {
+			t.Fatalf("%s: %d windows, want %d", file, len(got), len(src)+1)
+		}
+		for n, w := range got {
+			if w.from != 0 || w.end != n {
+				t.Fatalf("%s: window %d is [%d,%d), want [0,%d)", file, n, w.from, w.end, n)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no corpus file of at most 684 bytes")
 	}
 }
 

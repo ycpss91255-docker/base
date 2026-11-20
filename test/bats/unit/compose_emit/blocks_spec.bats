@@ -248,6 +248,20 @@ EXPECTED
   [[ "$(grep -c alwayss "${_err}")" == "2" ]]
 }
 
+# why: base#1660 -- _emit_init_line runs once per stage plus once for devel;
+# the invalid-init warning must print once per emit, and again after a reset.
+@test "_emit_init_line: invalid value warns once per emit, again after reset (base#1660)" {
+  export LOG_FORMAT=text SETUP_LANG=en
+  _reset_inert_warnings
+  local _err="${BATS_TEST_TMPDIR}/1660-latch.err"
+  _emit_init_line "garbage" 2>"${_err}" >/dev/null
+  _emit_init_line "garbage" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c garbage "${_err}")" == "1" ]]
+  _reset_inert_warnings
+  _emit_init_line "garbage" 2>>"${_err}" >/dev/null
+  [[ "$(grep -c garbage "${_err}")" == "2" ]]
+}
+
 # why: additional_contexts
 @test "_emit_additional_contexts_block: empty omits; entries emit block" {
   run _emit_additional_contexts_block ""

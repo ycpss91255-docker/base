@@ -200,6 +200,28 @@ printf '%s\\n' \"\${_v}\${_w}\" >/dev/null"
   done
 }
 
+# why: A record whose printed text has an odd count of unescaped quotes must
+# not outlive its own line (base#1415)
+@test "kcov: lines after a [[ ]] record holding a lone quote operand are recorded (base#1415)" {
+  # Line 3 traces as `[[ ' == \` ]]`: bash prints the expanded operand of
+  # [[ ]] raw, so the lone `'` (the value of _c) leaves kcov's parity odd.
+  # Lines 4-6 all execute unconditionally and must still be credited.
+  _measure "#!/usr/bin/env bash
+_c=\"'\"
+if [[ \"\${_c}\" == '\`' ]]; then :; fi
+_a=\"after one\"
+_b=\"after two\"
+printf '%s\\n' \"\${_a}\${_b}\" >/dev/null"
+
+  [[ "$(_hits 3)" != "null" ]] || fail \
+    "line 3 is not in the report at all -- the fixture no longer says what this test is about."
+  local _l
+  for _l in 4 5 6; do
+    [[ "$(_hits "${_l}")" -ge 1 ]] || fail \
+      "line ${_l} ran but kcov recorded $(_hits "${_l}") hits. The record on line 3 carries one unescaped single quote, so kcov's parity counter stayed inside a quote and discarded every marker line after it (base#1415)."
+  done
+}
+
 # _bash_method_of <argv-log>
 #   Print every `--bash-method=` token in a recorded kcov argv, one per
 #   line, or nothing when the argv carries none.
