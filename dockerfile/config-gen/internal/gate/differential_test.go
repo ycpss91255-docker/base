@@ -575,6 +575,39 @@ func differential(rows []string, files map[string]string) []string {
 	return problems
 }
 
+// The int64 exception is a closed set on every path: a file outside
+// int64Rows that takes it is named, whether it sits in forms, the vendored
+// toml-test or the shared corpus, so a new case BurntSushi refuses for an
+// out-of-int64 integer, which tomllib accepts, is a disagreement and not a
+// silent match (review round 2, base#1851). Each file holds 2^63, which
+// BurntSushi refuses only for its range, and its row is tomllib's accept
+// with the file's digest, so the verdicts agree and only the set decides.
+// int64-over.toml, a member of the set, is the control: no problem.
+func TestDifferentialHoldsTheInt64ExceptionToItsSetOnEveryPath(t *testing.T) {
+	const over = "a = 9223372036854775808\n"
+	sum := sha256.Sum256([]byte(over))
+	digest := hex.EncodeToString(sum[:])
+	for _, tc := range []struct {
+		rel  string
+		want string // "" = no problem
+	}{
+		{"internal/gate/testdata/forms/int64-over.toml", ""},
+		{"internal/gate/testdata/forms/new-over.toml", "internal/gate/testdata/forms/new-over.toml: int64 exception path taken = true, want false"},
+		{"internal/gate/testdata/toml-test/valid/new-over.toml", "internal/gate/testdata/toml-test/valid/new-over.toml: int64 exception path taken = true, want false"},
+		{"testdata/corpus/s1/new-over.toml", "testdata/corpus/s1/new-over.toml: int64 exception path taken = true, want false"},
+	} {
+		p := filepath.Join(t.TempDir(), "f.toml")
+		if err := os.WriteFile(p, []byte(over), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, problems := oracleDifferential(writeOracle(t, []string{tc.rel + "\taccept\t" + digest}), map[string]string{tc.rel: p})
+		got := strings.Join(problems, "\n")
+		if got != tc.want {
+			t.Errorf("%s: problems = %q, want %q", tc.rel, got, tc.want)
+		}
+	}
+}
+
 // int64A is tomllib's a for the int64 exception files whose first line
 // holds a float beside the out-of-int64 integer (base#1441):
 // float-over-int64.toml's a = 1e999 loads as +Inf. Only these files get
