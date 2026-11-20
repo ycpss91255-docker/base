@@ -1104,9 +1104,9 @@ jobs:
     # Twenty-one since base#1470 added s1j.tsv's 31 rows (their seconds
     # measured on local 4-slot roster runs): over twenty legs the worst
     # bound became 246.5 s; over twenty-one it is 237.5 s.
-    # Twenty-two since base#1851 added s5b.tsv's 5 rows (their seconds
-    # measured on a local 4-slot roster run): over twenty-one legs the
-    # worst bound became 241.5 s; over twenty-two it is 231.2 s.
+    # Twenty-two since base#1851 added s5b.tsv's 7 rows (their seconds
+    # measured on one local 4-slot run of those rows): over twenty-one
+    # legs the worst bound became 242.3 s; over twenty-two it is 232.3 s.
     # Whether every leg still fits is decided by the mutation_roster_spec
     # case "every mutation-roster leg's list-scheduling bound over its
     # worker slots fits 240 s", a bound over seconds.txt, not a timed job.
