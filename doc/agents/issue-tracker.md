@@ -30,6 +30,17 @@ inside a clone, and this clone's `origin` is
 ycpss91255-docker/base` explicitly when a command runs from outside the
 worktree, such as from a sibling repo or a scratch directory.
 
+## 語言
+
+自 2026-11-21 起，base 以繁體中文為主。
+
+- issue 與 PR 的標題、內文、留言，以及 commit 訊息，都用繁體中文。
+- 以下維持英文：
+  - commit 開頭的類型與範圍，例如 `fix(setup):`。
+  - issue 的段落標題，例如 `## Context`、`## Acceptance criteria`、`## Seam`、`## Out of scope`，因為 `gh-issue.sh` 靠它們檢查格式。
+  - 程式識別字、檔名、指令。
+- 已有的內容不回頭翻譯。
+
 ## Title and body format
 
 The shape of a title, the five standard body sections, the close-comment
