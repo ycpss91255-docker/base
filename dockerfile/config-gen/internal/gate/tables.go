@@ -64,8 +64,9 @@ var (
 // rules (base#1851). A dotted key may not pass through a table a header
 // defined, or a dotted-key table an earlier section made; nothing may
 // extend an inline table or an array value; a key may not name a path
-// that already exists. A break of one of these rules is refused at the
-// first byte of the key or header that breaks it. Where the TOML 1.0
+// that already exists. A break of one of these rules is refused with
+// ReasonDefinedTwice at the first byte of the key or header that breaks
+// it. Where the TOML 1.0
 // grammar allows nothing at the byte it reads, it stops there with
 // errStop at that byte.
 type tables struct {
@@ -139,7 +140,7 @@ func (t *tables) header() (*node, error) {
 	n := t.root
 	err := t.key(func(part string, dotted bool) (err error) {
 		if dotted {
-			n, err = t.headerStep(n, part, aot, start)
+			n, err = t.headerStep(n, part, start)
 		} else {
 			n, err = t.headerLeaf(n, part, aot, start)
 		}
@@ -186,15 +187,11 @@ func (t *tables) pair(n *node, step func(n *node, part string, at int) (*node, e
 // headerStep passes a [parts] or [[parts]] header that starts at offset
 // at through part, an ancestor of its last part, below n, and returns
 // part's node. Either header refuses an ancestor that is a value: a
-// scalar with ReasonDuplicate, and an inline table or an array with
-// ReasonDuplicate under [[parts]] and ReasonRedefine under [parts].
-func (t *tables) headerStep(n *node, part string, aot bool, at int) (*node, error) {
+// scalar, an inline table or an array.
+func (t *tables) headerStep(n *node, part string, at int) (*node, error) {
 	n = n.child(part)
-	switch {
-	case n.kind == nodeScalar, !n.container() && aot:
-		return nil, t.refuse(at, ReasonDuplicate)
-	case !n.container():
-		return nil, t.refuse(at, ReasonRedefine)
+	if !n.container() {
+		return nil, t.refuse(at)
 	}
 	return n, nil
 }
@@ -207,18 +204,15 @@ func (t *tables) headerLeaf(n *node, part string, aot bool, at int) (*node, erro
 	c, ok := n.kids[part]
 	if aot {
 		if ok && c.kind != nodeAOT {
-			return nil, t.refuse(at, ReasonDuplicate)
+			return nil, t.refuse(at)
 		}
 		// Each [[parts]] opens a new element: what the last one held is
 		// out of scope.
 		c = newNode(nodeAOT)
 		n.kids[part] = c
 	} else {
-		switch {
-		case ok && (c.explicit || c.kind == nodeInline || c.kind == nodeArray):
-			return nil, t.refuse(at, ReasonRedefine)
-		case ok && c.kind != nodeTable:
-			return nil, t.refuse(at, ReasonDuplicate)
+		if ok && (c.explicit || c.kind != nodeTable) {
+			return nil, t.refuse(at)
 		}
 		c = n.child(part)
 	}
@@ -230,12 +224,8 @@ func (t *tables) headerLeaf(n *node, part string, aot bool, at int) (*node, erro
 // an ancestor of its last part, below n, and returns part's node. It
 // refuses a part a header defined and a part that is a value.
 func (t *tables) assignStep(n *node, part string, at int) (*node, error) {
-	c, ok := n.kids[part]
-	switch {
-	case ok && c.explicit:
-		return nil, t.refuse(at, ReasonRedefine)
-	case ok && !c.container():
-		return nil, t.refuse(at, ReasonDuplicate)
+	if c, ok := n.kids[part]; ok && (c.explicit || !c.container()) {
+		return nil, t.refuse(at)
 	}
 	n = n.child(part)
 	t.pending = append(t.pending, n)
@@ -248,16 +238,16 @@ func (t *tables) assignStep(n *node, part string, at int) (*node, error) {
 // as anything but a table.
 func (t *tables) inlineStep(n *node, part string, at int) (*node, error) {
 	if c, ok := n.kids[part]; ok && c.kind != nodeTable {
-		return nil, t.refuse(at, ReasonDuplicate)
+		return nil, t.refuse(at)
 	}
 	return n.child(part), nil
 }
 
 // define records key part as a new node below n and returns it, and
-// refuses ReasonDuplicate at offset at when n already holds part.
+// refuses ReasonDefinedTwice at offset at when n already holds part.
 func (t *tables) define(n *node, part string, at int) (*node, error) {
 	if _, ok := n.kids[part]; ok {
-		return nil, t.refuse(at, ReasonDuplicate)
+		return nil, t.refuse(at)
 	}
 	c := newNode(nodeScalar)
 	n.kids[part] = c
@@ -416,8 +406,9 @@ func (t *tables) eat(s string) bool {
 	return false
 }
 
-// refuse returns the *Refusal for reason, a member of the duplicate
-// class, at offset at.
-func (t *tables) refuse(at int, reason Reason) error {
-	return refusal(t.label, t.src, at, reason, "key path defined twice is not TOML 1.0")
+// refuse returns the ReasonDefinedTwice *Refusal at offset at. This slice
+// owns only the refuse verdict; the text, and the position tomllib's
+// message names, are base#1852's to set.
+func (t *tables) refuse(at int) error {
+	return refusal(t.label, t.src, at, ReasonDefinedTwice, "key path defined twice is not TOML 1.0")
 }

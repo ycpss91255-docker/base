@@ -50,13 +50,12 @@ const (
 	// whose offset minute is above 59, which the TOML 1.0 oracle refuses
 	// at the offset's sign (base#1851).
 	ReasonOffsetRange
-	// ReasonDuplicate is a key path defined a second time where nothing
-	// may extend it: a key assigned twice, a path through a value, or a
-	// [[path]] over a value that is not an array of tables (base#1851).
-	ReasonDuplicate
-	// ReasonRedefine is a table header, or a dotted key, whose path names
-	// a table that a header or dotted keys already defined (base#1851).
-	ReasonRedefine
+	// ReasonDefinedTwice is a key path defined a second time: a key
+	// assigned twice, a path through a value, a [[path]] over a value that
+	// is not an array of tables, or a table header or dotted key whose
+	// path names a table a header or dotted keys already defined
+	// (base#1851).
+	ReasonDefinedTwice
 	// ReasonSyntax is the byte where the structural reading stops because
 	// the TOML 1.0 grammar allows nothing there: a header with no closing
 	// bracket, a key with no `=`, a value missing, two values or pairs with
