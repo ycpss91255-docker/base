@@ -225,7 +225,8 @@ _refusal_violations() {
 # fatal once the shell re-emits a frame through _log_* (base#438), so an event
 # id the binary frames but the registry lacks would turn a refusal into a
 # crash of its caller. This drives the built binary down each refusal it
-# can reach -- wrong argv, a parse error, a missing path, a directory, a
+# can reach -- wrong argv, a parse error, a TOML 1.1-only form the gate
+# refuses before decode (base#1936), a missing path, a directory, a
 # mode-000 file opened by uid 65534, and a stdout on /dev/full -- and
 # holds each to the five-point refusal contract (_refusal_violations: the
 # status the I/O contract names for it, usage 2, output failure 4, every
@@ -245,6 +246,7 @@ _refusal_violations() {
   local -A _want=(
     [usage]="2 config_gen_usage_invalid"
     [parse]="1 conf_toml_parse_failed"
+    [toml11]="1 config_gen_toml_gate_refused"
     [missing]="1 no_such_file"
     [dir]="1 config_gen_input_not_regular"
     [unreadable]="1 config_gen_input_unreadable"
@@ -269,7 +271,7 @@ _refusal_violations() {
   printf -v _cmd '%q tables --name l.toml %q' \
     "${_shared}/config-gen" "${_shared}/f.toml"
 
-  for _case in usage parse missing dir unreadable full; do
+  for _case in usage parse toml11 missing dir unreadable full; do
     _rc=0
     _want_file="${_label}"
     : > "${S}/out"
@@ -279,6 +281,7 @@ _refusal_violations() {
         "${CONFIG_GEN_BIN}" tables "${_ok}" > "${S}/out" 2> "${S}/err" || _rc=$?
         ;;
       parse) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/bad.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
+      toml11) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${TESTDATA}/corpus/s1/toml11_escape_e.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
       missing) "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/absent.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
       dir) timeout 10 "${CONFIG_GEN_BIN}" tables --name "${_label}" "${S}/dir.toml" > "${S}/out" 2> "${S}/err" || _rc=$? ;;
       unreadable)
