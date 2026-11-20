@@ -11,9 +11,13 @@ func init() {
 	Register("version", versionCmd)
 }
 
-// versionCmd prints the toolchain config-gen was built with as one line,
-// "toolchain <x.y.z>" (base#2022).
+// contentDigest is stamped at build time with -ldflags -X
+// main.contentDigest=<digest>; "unstamped" means a plain go build (base#2033).
+var contentDigest = "unstamped"
+
+// versionCmd prints "toolchain <x.y.z>" (base#2022), then
+// "digest <contentDigest>" (base#2033).
 func versionCmd(_ []string, stdout, _ io.Writer) error {
-	_, err := fmt.Fprintf(stdout, "toolchain %s\n", strings.TrimPrefix(runtime.Version(), "go"))
+	_, err := fmt.Fprintf(stdout, "toolchain %s\ndigest %s\n", strings.TrimPrefix(runtime.Version(), "go"), contentDigest)
 	return err
 }
