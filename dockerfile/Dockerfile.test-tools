@@ -86,16 +86,16 @@ ARG ALPINE_VERSION=3.23
 #
 # All are `git apply`, which fails when its context moves, so a
 # KCOV_VERSION bump that invalidates any one fails the build.
-# The Go release the config-gen-builder stage builds with (base#1847), the
-# same release as GO_IMAGE in Dockerfile.config-gen.
-# tool-pin: golang-test-tools dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+$
-ARG GOLANG_VERSION=1.27.2
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 # The commit KCOV_VERSION must resolve to (the peeled commit of the annotated
 # tag, not the tag object). kcov-builder fails when the clone differs, so a
 # retagged upstream cannot change the image silently (base#1674).
 ARG KCOV_COMMIT=a39874f938ce13f7a65f253120d1ec946b349ffe
+# The Go release the config-gen-builder stage builds with (base#1847), the
+# same release as GO_IMAGE in Dockerfile.config-gen.
+# tool-pin: golang-test-tools dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+$
+ARG GOLANG_VERSION=1.27.2
 # THE declaration of the `just` runner version, for this image and for
 # every other path that installs it: script/ci/install-just.sh in each CI
 # job that installs just (fed JUST_VERSION by that job's just-pin step),
