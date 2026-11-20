@@ -105,3 +105,15 @@ JSON
     'Merged as deadbeefdeadbeefdeadbeefdeadbeefdeadbeef.' \
     'This PR closes no issue.')" ]
 }
+
+# why: A merge event always carries merge_commit_sha. An empty one means the
+# event is not what the workflow expects, and "Merged as ." would tell the
+# owner nothing, so the step fails and posts nothing (base#2012)
+@test "merged-pr-comment: an empty merge sha fails and posts nothing" {
+  _stub_gh
+  echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}' \
+    >"${GQL_FIXTURE}"
+  MERGE_SHA="" _run_step
+  [ "${status}" -ne 0 ]
+  [ ! -e "${POSTED}" ]
+}
