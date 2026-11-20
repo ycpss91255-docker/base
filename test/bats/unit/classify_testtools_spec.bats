@@ -89,6 +89,9 @@ _classify_push() {
 _classify_pr() {
   local _p="${1:?BUG: _classify_pr expects a path or -}"
   local _d="${BATS_TEST_TMPDIR}/pr" _t
+  # A directory the Dockerfile COPYs (base#1847) is changed through a file
+  # inside it: git sees files, and the directory already exists in the copy.
+  [[ "${_p}" != - && -d "/source/${_p}" ]] && _p="${_p%/}/classify-probe.txt"
   rm -rf "${_d}"
   mkdir -p "${_d}"
   for _t in script dist dockerfile; do

@@ -2,7 +2,8 @@
 #
 # The only build whose context is the repo root (`docker build ... .`)
 # is dockerfile/Dockerfile.test-tools. From the context it COPYs exactly
-# one file, dockerfile/toml_bridge.py; every other COPY is
+# one file, dockerfile/toml_bridge.py, and the Go module directory
+# dockerfile/config-gen/ (base#1847); every other COPY is
 # `COPY --from=<stage>`. In a consumer, build.sh builds it with the
 # vendored .base/ as the context (base#1172), so this file -- vendored
 # as .base/.dockerignore -- is the one that applies there too, and it

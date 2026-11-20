@@ -85,6 +85,7 @@ on:
       - 'dockerfile/kcov-bash53-ansi-c.patch'
       - 'dockerfile/kcov-marker-resync.patch'
       - 'dockerfile/bats-timeout-killer.patch'
+      - 'dockerfile/config-gen/**'
       - '.github/workflows/release-test-tools.yaml'
     tags:
       - 'v*'
