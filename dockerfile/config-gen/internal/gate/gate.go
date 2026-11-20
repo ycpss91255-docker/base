@@ -6,9 +6,9 @@
 // datetime whose offset hour is above 23 or offset minute above 59, which
 // BurntSushi v1.6.0 accepts and tomllib refuses (base#1851), and a key
 // path a document defines twice, which tomllib refuses and BurntSushi
-// v1.6.0 accepts in some forms (base#1851), and the byte where the
+// v1.6.0 accepts in some forms (base#1851), and a document whose
 // structural reading stops because the TOML 1.0 grammar allows nothing
-// there (base#1851).
+// where it reads (base#1851).
 package gate
 
 import (
@@ -56,12 +56,11 @@ const (
 	// path names a table a header or dotted keys already defined
 	// (base#1851).
 	ReasonDefinedTwice
-	// ReasonSyntax is the byte where the structural reading stops because
-	// the TOML 1.0 grammar allows nothing there: a header with no closing
-	// bracket, a key with no `=`, a value missing, two values or pairs with
-	// no comma between them, a string left unclosed. It is the first byte
-	// the reading cannot go on from, and no rule after it decides the
-	// verdict (base#1851).
+	// ReasonSyntax is a document whose structural reading stops because
+	// the TOML 1.0 grammar allows nothing where it reads: a header with no
+	// closing bracket, a key with no `=`, a value missing, two values or
+	// pairs with no comma between them, a string left unclosed. No rule
+	// after the stop decides the verdict (base#1851).
 	ReasonSyntax
 )
 
@@ -106,27 +105,24 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 // one unit, so its second byte never starts an escape.
 var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^'\n]*'|"""(?:[^\\]|\\[^ex])*?(?:(\\[ex])|"""""|""""|""")|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
 
-// Check returns nil, or a *Refusal that names label and one offending
-// byte of src (base#1850). The lexical rules come first: the earliest in
-// document order of the backslash of a `\e` or `\x` escape in a basic or
-// multi-line basic string, or the first byte (LF,
-// or the CR of a CRLF) of a line ending outside a string or comment
-// whose innermost open `[` / `{` container is an inline table, the comma
-// of an inline table's trailing comma, or the first byte of a bare
-// token that is a time without seconds, or the first byte of a bare
-// value (a value position of the table pass's reading) that is a
-// date-bearing value with year 0000, or the sign of a datetime's offset
-// whose hour is above 23 or whose minute is above 59; or the first byte
-// of a leading byte order mark. The same bytes in a comment, a literal string or a
-// multi-line literal are TOML 1.0 and are accepted. Where the structural
-// reading (tables) stops, the byte it stopped on is refused with
-// ReasonSyntax unless one of those bytes comes at or before it; nothing
-// after the stop decides the verdict. Only when neither a lexical rule
-// nor a stop refuses does it refuse the first byte of the key or header
-// that defines a key path a second time (tables, base#1851), so Check
-// may name a later byte than the first offending one: for `a = 1`,
-// `a = 2` and `b = "\e"` on three lines it names the escape on line 3,
-// not the second `a` (review round 2, base#1851).
+// Check returns nil, or a *Refusal that names label, a Reason and one
+// byte of src (base#1850). The lexical rules refuse at: the backslash of
+// a `\e` or `\x` escape in a basic or multi-line basic string; the first
+// byte (LF, or the CR of a CRLF) of a line ending outside a string or
+// comment whose innermost open `[` / `{` container is an inline table;
+// the comma of an inline table's trailing comma; the first byte of a bare
+// token that is a time without seconds; the first byte of a bare value
+// (a value position of the table pass's reading) that is a date-bearing
+// value with year 0000; the sign of a datetime's offset whose hour is
+// above 23 or whose minute is above 59; and the first byte of a leading
+// byte order mark. The same bytes in a comment, a literal string or a
+// multi-line literal are TOML 1.0 and are accepted. A document the
+// structural reading (tables) cannot read to its end is refused with
+// ReasonSyntax, unless a lexical rule refuses a byte at or before the
+// stop or the stop is on a byte the decoder refuses anywhere
+// (undecodable); nothing after the stop decides the verdict. One that
+// defines a key path a second time, and breaks no lexical rule, is
+// refused with ReasonDefinedTwice (tables, base#1851).
 func Check(label string, src []byte) error {
 	for _, p := range bomPrefixes {
 		if bytes.HasPrefix(src, p) {

@@ -65,10 +65,8 @@ var (
 // defined, or a dotted-key table an earlier section made; nothing may
 // extend an inline table or an array value; a key may not name a path
 // that already exists. A break of one of these rules is refused with
-// ReasonDefinedTwice at the first byte of the key or header that breaks
-// it. Where the TOML 1.0
-// grammar allows nothing at the byte it reads, it stops there with
-// errStop at that byte.
+// ReasonDefinedTwice. Where the TOML 1.0 grammar allows nothing at the
+// byte it reads, it stops with errStop.
 type tables struct {
 	src   []byte
 	label string
@@ -89,8 +87,8 @@ type tables struct {
 	arrays map[int]bool
 }
 
-// errStop ends the pass at t.i, a byte where the TOML 1.0 grammar allows
-// nothing; Check refuses that byte with ReasonSyntax (base#1851).
+// errStop ends the pass at t.i, where the TOML 1.0 grammar allows
+// nothing; Check then refuses with ReasonSyntax (base#1851).
 var errStop = errors.New("gate: table pass stopped")
 
 // newTables returns a pass over src that starts at its first byte and
