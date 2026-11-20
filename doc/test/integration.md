@@ -214,27 +214,18 @@ gone takes it away with _unplant (base#1851).
 The stub records each call's argv as ${S}/docker.<n>.argv. `docker image
 inspect` exits with ${S}/inspect.rc and `docker build` with ${S}/build.rc
 when those exist, 0 otherwise. For `docker run` it saves stdin as
-${S}/in.tar and dispatches on the recorded `--entrypoint`. `python3` runs
-this container's real `python3 -I -c <program>` (the argument after `-c`) on
-that tar, so the verdicts are tomllib's. `/bin/sh` runs the step's own
-container script (the argument after `-c`) on that tar with a stand-in
-python3 first on PATH, so the container's loops are the step's, not the
-stub's. The stand-in oracle program answers `<verdict>\t<sha256 of its
-stdin>`, as the real one does, by a planted file's content: `refuse` is
-refused by the oracle program and by the bridge, `bridge-refuse` only by the
-bridge, `die` kills the oracle program's interpreter and `bridge-die` the
-bridge's, and `bridge-crash` is refused by the oracle program while the
-bridge exits 1 with a traceback; anything else is accepted. A refusing
-oracle program writes `toml-bridge: refused` to the path it is handed as its
-argument, and a refusing bridge prints that line on stderr and exits 1, the
-bridge's own refusal shape. When ${S}/answers exists the stub prints that
-file instead, byte for byte. When ${S}/run.rc exists, `docker run` then
-exits with the status it holds.
+${S}/in.tar and, for `--entrypoint python3`, the only shape the step runs,
+runs the python3 first on PATH (this container's real one, unless a test
+plants another in ${S}/bin) as `python3 -I -c <program>`, the argument after
+`-c`, on that tar, so the verdicts are tomllib's. Any other entrypoint fails
+with status 125. When ${S}/answers exists the stub prints that file instead,
+byte for byte. When ${S}/run.rc exists, `docker run` then exits with the
+status it holds.
 
 | Test | Description |
 |------|-------------|
 | `10-toml-oracle.sh: the container receives exactly the forms, toml-test and shared corpus TOML files, in C-locale order (base#1851)` | The differential test can only compare the files tomllib saw. The step must hand the container every forms file, every vendored toml-test file, at any depth, and every shared corpus file the module's testdata/corpus/s*/ holds (the files testcorpus.Glob reads), and nothing else -- a LICENSE, SOURCE or golden file is not TOML, and a TOML file outside corpus/s*/ is not corpus. The order is the C locale's, so an upper-case name sorts before a lower-case one whatever the caller's locale is. The expected list is written out, not re-derived; it holds setup()'s three baseline files too. |
-| `10-toml-oracle.sh: verdicts.tsv is the container's mixed accept and refuse answer byte for byte, calibration lines left out (base#1851)` | The differential test reads verdicts.tsv as tomllib's answer, so what the container answered must reach the build as it was, neither re-sorted nor rewritten, and its calibration lines left out. Each row carries the SHA-256 of the bytes the oracle program read, which the differential test checks against the file (review round 2, base#1851). Here the container's own loop runs with a stand-in interpreter that refuses two of the files, one under forms and one under toml-test, so a step that writes `accept` for every file, or drops the refused rows, gives a different file. The expected TSV is _answer's, built from what was planted and sha256sum's digests of it, not from the step's output. |
+| `10-toml-oracle.sh: verdicts.tsv is the container's mixed accept and refuse answer byte for byte (base#1851)` | The differential test reads verdicts.tsv as tomllib's answer, so what the container answered must reach the build as it was, neither re-sorted nor rewritten. Each row carries the SHA-256 of the bytes the oracle program read, which the differential test checks against the file (review round 2, base#1851). Here the real oracle program runs on this container's tomllib behind the docker stub, and two of the files, one under forms and one under toml-test, hold `refuse`, which tomllib refuses, so a step that writes `accept` for every file, or drops the refused rows, gives a different file. The expected TSV is _answer's, built from what was planted and sha256sum's digests of it, not from the step's output. |
 | `10-toml-oracle.sh: through the real oracle program, a = 1 is accept, a 0xFF byte in a comment is refuse, and each digest is sha256sum's of the planted bytes (base#1851)` | A verdict is tomllib's only when the real oracle program gave it, run as the container's `python3 -I -c` on the tar, never a stand-in. tomllib.loads takes text, and a TOML file is UTF-8, so the program must decode the file's bytes strictly: forms/ff.toml is `a = 1` with a 0xFF byte in its comment, and decoded with errors=replace it parses (checked here with this container's tomllib), so only strict decoding refuses it. Each row's digest must be of the bytes as planted, not of decoded text. The expected rows are written out: the verdicts by hand, the digests sha256sum's of the planted files (base#1851). |
 | `10-toml-oracle.sh: a file tomllib cannot judge for RecursionError is config_gen_toml_oracle_failed reason=image, never a refuse verdict (base#1851)` | A verdict is tomllib's only when tomllib judged the file. A value nested past the interpreter's recursion limit -- forms/deep.toml is `a = ` and 100000 `[` -- makes tomllib raise RecursionError (checked here with this container's tomllib), not TOMLDecodeError: the parser ran out of stack and said nothing about whether the file is TOML. So that file must not become a `refuse` row. The oracle program must fail, and the step must refuse under the five-point refusal test: status 1, nothing on stdout, config_gen_toml_oracle_failed reason=image, and no toml-oracle/ directory (base#1851). |
 | `10-toml-oracle.sh: the container is the pinned toml-bridge image tool_image_derive names, whatever TOML_BRIDGE_IMAGE says (base#1851)` | The verdicts are tomllib's only when they come from the pinned bridge image, the one named by the content-digest tag of dockerfile/ Dockerfile.toml-bridge and the files it COPYs, never from a floating tag or from whatever TOML_BRIDGE_IMAGE names. So the one `docker run` must name the image tool_image_derive gives for this checkout, a `toml-bridge:<12 hex>` tag, and a TOML_BRIDGE_IMAGE in the environment must not reach the run (review round 1, base#1851). |

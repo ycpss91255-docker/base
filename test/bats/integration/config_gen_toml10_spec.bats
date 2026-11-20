@@ -20,23 +20,13 @@
 # The stub records each call's argv as ${S}/docker.<n>.argv. `docker
 # image inspect` exits with ${S}/inspect.rc and `docker build` with
 # ${S}/build.rc when those exist, 0 otherwise. For `docker run` it saves
-# stdin as ${S}/in.tar and dispatches on the recorded `--entrypoint`.
-# `python3` runs this container's real `python3 -I -c <program>` (the
-# argument after `-c`) on that tar, so the verdicts are tomllib's.
-# `/bin/sh` runs the step's own container script (the
-# argument after `-c`) on that tar with a stand-in python3 first on PATH,
-# so the container's loops are the step's, not the stub's. The stand-in
-# oracle program answers `<verdict>\t<sha256 of its stdin>`, as the real
-# one does, by a planted file's content: `refuse` is refused by the oracle
-# program and by the bridge, `bridge-refuse` only by the bridge, `die`
-# kills the oracle program's interpreter and `bridge-die` the bridge's,
-# and `bridge-crash` is refused by the oracle program while the bridge
-# exits 1 with a traceback; anything else is accepted. A refusing oracle
-# program writes `toml-bridge: refused` to the path it is handed as its
-# argument, and a refusing bridge prints that line on stderr and exits 1,
-# the bridge's own refusal shape. When ${S}/answers exists the stub prints that
-# file instead, byte for byte. When ${S}/run.rc exists, `docker run` then
-# exits with the status it holds.
+# stdin as ${S}/in.tar and, for `--entrypoint python3`, the only shape the
+# step runs, runs the python3 first on PATH (this container's real one,
+# unless a test plants another in ${S}/bin) as `python3 -I -c <program>`,
+# the argument after `-c`, on that tar, so the verdicts are tomllib's.
+# Any other entrypoint fails with status 125. When ${S}/answers exists the
+# stub prints that file instead, byte for byte. When ${S}/run.rc exists,
+# `docker run` then exits with the status it holds.
 
 bats_require_minimum_version 1.5.0
 
@@ -54,36 +44,6 @@ setup() {
   cp -a /source/dist/script/docker/lib "${R}/dist/script/docker/"
   cp /source/dockerfile/Dockerfile.toml-bridge /source/dockerfile/toml_bridge.py "${R}/dockerfile/"
   STEP="${R}/script/test/config_gen_steps/10-toml-oracle.sh"
-  mkdir -p "${S}/py"
-  cat > "${S}/py/python3" <<EOF
-#!$(command -v bash)
-# python3 -I -c <oracle program> | python3 -I <bridge> --tables
-in="\$(mktemp)"
-cat > "\${in}"
-c="\$(cat "\${in}")"
-if [[ "\${2:-}" == -c ]]; then
-  d="\$(sha256sum < "\${in}")"
-  case "\${c}" in
-    die) kill -9 \$\$ ;;
-    refuse | bridge-crash)
-      [[ -z "\${4:-}" ]] || printf 'toml-bridge: refused\n' > "\${4}"
-      printf 'refuse\t%s\n' "\${d%% *}" ;;
-    *) printf 'accept\t%s\n' "\${d%% *}" ;;
-  esac
-  exit 0
-fi
-case "\${c}" in
-  bridge-die) kill -9 \$\$ ;;
-  bridge-crash)
-    printf 'Traceback (most recent call last):\nMemoryError\n' >&2
-    exit 1 ;;
-  refuse | bridge-refuse)
-    printf 'toml-bridge: refused\n' >&2
-    exit 1 ;;
-esac
-exit 0
-EOF
-  chmod +x "${S}/py/python3"
   cat > "${S}/bin/docker" <<EOF
 #!$(command -v bash)
 n=\$(( \$(cat "${S}/docker.n" 2>/dev/null || echo 0) + 1 ))
@@ -110,7 +70,6 @@ case "\${1:-}" in
       done
       case "\${ep}" in
         python3) python3 -I -c "\${script}" < "${S}/in.tar" || rc=\$? ;;
-        /bin/sh) PATH="${S}/py:\${PATH}" sh -c "\${script}" < "${S}/in.tar" || rc=\$? ;;
         *) printf 'docker stub: no shape for --entrypoint %s\n' "\${ep}" >&2; rc=125 ;;
       esac
     fi
@@ -148,7 +107,7 @@ _plant() {
 }
 
 # _plant_as <content> <rel> -- a file holding <content> at <rel> under the
-# gate's testdata; the stand-in python3 answers by that content.
+# gate's testdata; _answer's verdict is read from that content.
 _plant_as() {
   _put "${1}" "internal/gate/testdata/${2}"
 }
@@ -241,15 +200,16 @@ _run_calls() {
 
 # why: The differential test reads verdicts.tsv as tomllib's answer, so
 # what the container answered must reach the build as it was, neither
-# re-sorted nor rewritten, and its calibration lines left out. Each row
-# carries the SHA-256 of the bytes the oracle program read, which the
-# differential test checks against the file (review round 2, base#1851).
-# Here the container's own loop runs with a stand-in interpreter that
-# refuses two of the files, one under forms and one under toml-test, so a
-# step that writes `accept` for every file, or drops the refused rows,
-# gives a different file. The expected TSV is _answer's, built from what
-# was planted and sha256sum's digests of it, not from the step's output.
-@test "10-toml-oracle.sh: verdicts.tsv is the container's mixed accept and refuse answer byte for byte, calibration lines left out (base#1851)" {
+# re-sorted nor rewritten. Each row carries the SHA-256 of the bytes the
+# oracle program read, which the differential test checks against the
+# file (review round 2, base#1851). Here the real oracle program runs on
+# this container's tomllib behind the docker stub, and two of the files,
+# one under forms and one under toml-test, hold `refuse`, which tomllib
+# refuses, so a step that writes `accept` for every file, or drops the
+# refused rows, gives a different file. The expected TSV is _answer's,
+# built from what was planted and sha256sum's digests of it, not from the
+# step's output.
+@test "10-toml-oracle.sh: verdicts.tsv is the container's mixed accept and refuse answer byte for byte (base#1851)" {
   _plant toml-test/valid/d.toml
   _plant_as refuse forms/b.toml
   _plant_as refuse toml-test/invalid/c.toml
