@@ -163,54 +163,34 @@ config_gen_tables() {
   local -n _cgt_out="$2"
   _cgt_out=""
   config_gen_resolve || return 1
-  # docker's --mount value is comma-separated and cannot carry a
-  # newline, so such a name is refused before any container (base#1470).
-  if [[ "$1" == *[,$'\n']* ]]; then
-    _log_err config_gen config_gen_path_unmountable \
-      "display=config_gen_tables: $1 cannot be named in a docker --mount (it holds a comma or newline)" \
-      "file=$1"
-    return 1
-  fi
-  # A stat only: the host never opens the path, and a missing src must
-  # not reach `docker run` (base#1470).
+  # A stat first: a missing file must not reach `docker run` (base#1470).
   if [[ ! -e "$1" && ! -L "$1" ]]; then
     _log_err config_gen no_such_file \
       "display=config_gen_tables: no such file: $1" "file=$1"
     return 1
   fi
-  # The mount src is the parent's physical path: `cd -P` applies each
-  # `..` to the physical directory, as the kernel's own walk of the name
-  # does, so the mounted file is the named one; `&&` turns a failing cd
-  # into a refusal instead of `/<base>`; the trailing `x` keeps a newline
-  # that ends the path. A symlinked parent whose target holds a comma or
-  # newline is then refused by the second guard. A bare name's parent is
-  # `.`; a name directly under / cuts to an empty parent, which is `/`,
-  # and the root's own `/` is dropped before the basename is appended, so
-  # the src is `/name`, not `//name` (base#1470).
-  local _cgt_dir="${1%/*}" _cgt_abs
-  [[ "$1" == */* ]] || _cgt_dir=.
-  [[ -n "${_cgt_dir}" ]] || _cgt_dir=/
-  _cgt_abs="$(CDPATH='' cd -P -- "${_cgt_dir}" && pwd -P && printf x)"
-  if [[ "${_cgt_abs}" != *$'\nx' ]]; then
-    _log_err config_gen no_such_file \
-      "display=config_gen_tables: no such file: $1" "file=$1"
+  # The file is read on the host and handed over on stdin, so a name that
+  # is not a regular file, or that the caller cannot read, is refused here
+  # with the frames the binary gives them (base#1937).
+  if [[ ! -f "$1" ]]; then
+    _log_err config_gen config_gen_input_not_regular \
+      "display=config_gen_tables: $1 is not a regular file" "file=$1"
     return 1
   fi
-  _cgt_abs="${_cgt_abs%$'\nx'}"
-  [[ "${_cgt_abs}" != / ]] || _cgt_abs=""
-  _cgt_abs+="/${1##*/}"
-  if [[ "${_cgt_abs}" == *[,$'\n']* ]]; then
-    _log_err config_gen config_gen_path_unmountable \
-      "display=config_gen_tables: $1 cannot be named in a docker --mount (its path ${_cgt_abs} holds a comma or newline)" \
-      "file=$1"
+  if ! { : < "$1"; } 2> /dev/null; then
+    _log_err config_gen config_gen_input_unreadable \
+      "display=config_gen_tables: $1 cannot be read" "file=$1"
     return 1
   fi
   local _cgt_tmp _cgt_rc=0
   _cgt_tmp="$(mktemp -d)"
-  docker run --rm --user "$(id -u):$(id -g)" \
-    --mount "type=bind,src=${_cgt_abs},dst=/in/f,readonly" \
-    "${_CONFIG_GEN_RESOLVED}" tables --name "$1" /in/f \
-    > "${_cgt_tmp}/out" 2> "${_cgt_tmp}/err" || _cgt_rc=$?
+  # The file goes in on stdin, as toml_bridge_parse feeds the bridge: a
+  # caller under docker.sock names a path only it can see, which the host
+  # daemon cannot bind-mount (base#1937).
+  # shellcheck disable=SC2094 # "$1" is only the --name label here
+  docker run --rm -i --user "$(id -u):$(id -g)" \
+    "${_CONFIG_GEN_RESOLVED}" tables --name "$1" - \
+    < "$1" > "${_cgt_tmp}/out" 2> "${_cgt_tmp}/err" || _cgt_rc=$?
   # A non-zero status with no diagnostic frame is refused on what is
   # observed: the status, and no frame. Any such run lands here, whether
   # docker or the binary wrote its stderr (base#1470).

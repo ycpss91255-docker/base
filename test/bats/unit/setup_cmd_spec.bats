@@ -4305,10 +4305,7 @@ EOF
     source /source/dist/script/docker/wrapper/setup.sh
     main apply --base-path '${_repo}' --output '${TEMP_DIR}/inst-1' -q
   "
-  # The layer check reads setup.toml through config_gen_tables, which
-  # refuses a path a docker --mount cannot name before compose is reached
-  # (base#1937).
-  assert_refusal 1 config_gen_path_unmountable "file=${_repo}/setup.toml"
+  assert_refusal 1 compose_relocated_root_unusable "path=${_repo}"
   assert [ ! -f "${TEMP_DIR}/inst-1/compose.yaml" ]
 }
 
@@ -4426,7 +4423,7 @@ EOF
 # _setup_conf_check_known goes through config_gen_tables (the config-gen
 # image's `tables` command), not the bridge's `--tables` view. A docker
 # shim records every argv; one layer check must record one config-gen run
-# whose arguments end `tables --name <layer> /in/f`, and no run carrying
+# whose arguments end `tables --name <layer> -`, and no run carrying
 # `--tables`.
 @test "_setup_conf_check_known reads a layer's tables through config-gen, one run (base#1937)" {
   printf '[gui]\nmode = "wayland"\n' > "${TEMP_DIR}/setup.toml"
@@ -4437,7 +4434,7 @@ EOF
   PATH="${MOCK_DIR}:${PATH}" LOG_FORMAT=json \
     run --separate-stderr _setup_conf_check_known "${TEMP_DIR}"
   assert_success
-  run grep -c -- " tables --name ${TEMP_DIR}/setup.toml /in/f\$" "${_log}"
+  run grep -c -- " tables --name ${TEMP_DIR}/setup.toml -\$" "${_log}"
   assert_output 1
   run grep -c -- "--tables" "${_log}"
   assert_output 0

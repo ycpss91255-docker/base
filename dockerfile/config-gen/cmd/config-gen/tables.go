@@ -62,7 +62,13 @@ func runTables(args []string, stdout, stderr io.Writer, open openFunc) int {
 		})
 	}
 	label := args[1]
-	src, err := readRegular(open, args[2])
+	var src []byte
+	var err error
+	if args[2] == "-" {
+		src, err = io.ReadAll(os.Stdin)
+	} else {
+		src, err = readRegular(open, args[2])
+	}
 	if err != nil {
 		return refuseInput(stderr, label, err)
 	}

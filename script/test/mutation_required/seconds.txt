@@ -326,7 +326,6 @@ s1j.tsv	tables-abs-sentinel	17.0
 s1j.tsv	tables-bare-parent	57.5
 s1j.tsv	tables-cd-physical	28.3
 s1j.tsv	tables-cd-sentinel	56.4
-s1j.tsv	tables-host-never-opens	45.9
 s1j.tsv	tables-image	30.4
 s1j.tsv	tables-mount-readonly	37.2
 s1j.tsv	tables-name-label	45.8
