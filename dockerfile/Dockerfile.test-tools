@@ -86,6 +86,10 @@ ARG ALPINE_VERSION=3.23
 #
 # All are `git apply`, which fails when its context moves, so a
 # KCOV_VERSION bump that invalidates any one fails the build.
+# The Go release the config-gen-builder stage builds with (base#1847), the
+# same release as GO_IMAGE in Dockerfile.config-gen.
+# tool-pin: golang-test-tools dockerhub library/golang pattern=^1\.[0-9]+\.[0-9]+$
+ARG GOLANG_VERSION=1.27.2
 # tool-pin: kcov github-release SimonKagstrom/kcov
 ARG KCOV_VERSION=v43
 # The commit KCOV_VERSION must resolve to (the peeled commit of the annotated
@@ -326,6 +330,15 @@ RUN apk-retry add --no-cache \
     make -C /tmp/kcov/build -j"$(nproc)" && \
     make -C /tmp/kcov/build install
 
+# config-gen, the Go generator (ADR-00000039, base#1847). The module comes
+# out of the build context, so the digest and the CI path filters cover
+# dockerfile/config-gen/ through this COPY (script/ci/testtools_paths.sh).
+# The build is the one Dockerfile.config-gen's `build` stage runs.
+FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION} AS config-gen-builder
+WORKDIR /src
+COPY dockerfile/config-gen /src/
+RUN CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /out/config-gen ./cmd/config-gen
+
 # Final stage: bash + bats + shellcheck + hadolint + bats-{support,assert}
 # + parallel + git + ca-certificates + kcov.
 # bash is required because /opt/bats/bin/bats is a `#!/usr/bin/env bash` script
@@ -433,6 +446,7 @@ COPY --from=lint-tools /usr/local/bin/shellcheck /usr/local/bin/
 COPY --from=lint-tools /usr/local/bin/hadolint /usr/local/bin/
 COPY --from=kcov-builder /usr/local/bin/kcov /usr/local/bin/kcov
 COPY --from=just-runner /usr/local/bin/just /usr/local/bin/just
+COPY --from=config-gen-builder /out/config-gen /usr/local/bin/config-gen
 # The bridge comes straight out of the build context, not through a
 # `python:` stage of its own. That stage pulled a second Python image on
 # both architectures, pip-installed `tomli` into it and then contributed
