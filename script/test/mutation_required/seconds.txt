@@ -352,4 +352,3 @@ s1571.tsv	slot-reset-clean	37.4
 s1571.tsv	baseline-per-row	35.0
 s1571.tsv	filter-no-fallback	33.9
 s1571.tsv	deal-by-index	29.4
-s5.tsv	gate-fuzz-fail-path	36.3

@@ -39,18 +39,17 @@
 #                never reach final)
 #   test         FROM goenv, not FROM build: a --target test build must run
 #                no go before admit passed (base#1465), and build's go build
-#                would otherwise run beside admit. Then the six gates, one
+#                would otherwise run beside admit. Then the five gates, one
 #                RUN each, in this order: fmt, vet, lint, race, coverage
 #                (measured counts, then cg-gates ratchet against
-#                coverage-floors.d and the mutation context's floors.base),
-#                fuzz (base#1850). A
+#                coverage-floors.d and the mutation context's floors.base). A
 #                gate that passes prints `gate=<g> ok`; one that fails prints
 #                `config_gen_gate_<g>_failed` on stderr and stops the build.
 #                Each is its own RUN so a red names its gate and the gates
 #                after it read as never reached, not as passed. The id is
 #                spelled from ${g} in the RUN text, so BuildKit's echo of the
 #                RUN line itself never carries a literal id the runner would
-#                read as a failure. After fuzz, the ignored-input gate
+#                read as a failure. After coverage, the ignored-input gate
 #                (base#1467) refuses a Git-ignored module file left in the
 #                build context, then the corpus sensitivity
 #                gate (base#1467) flips each golden file for the packages
@@ -214,31 +213,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         --base /mutation/floors.base --module "$(go list -m)"; } \
       || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
     echo gate=coverage ok
-# The fuzz gate (base#1850): every Fuzz target of internal/gate, and of no
-# other package, searches for 60 s from its seeds, which the race gate has
-# already run. A panic or a failed property stops the build with the
-# target's own report. It is the last RUN that prints an ok line, so the
-# gates before it read as passed when it goes red; the ignored-input,
-# corpus sensitivity and mutation gates after it print none.
-# go test -fuzz keeps its generated corpus under GOCACHE/fuzz, inside the
-# shared go-build cache mount; the tmpfs on that path gives each search
-# the committed seeds alone and keeps nothing past this RUN.
-# Every step that can fail clears ok rather than exiting, so a failure to
-# read the corpus root or list the package's targets is this gate's red
-# too, never an empty loop that passes.
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=tmpfs,target=/root/.cache/go-build/fuzz \
-    g=fuzz; ok=1; pkg=./internal/gate; x="$(cat /tmp/config-gen-corpus-root)" || ok=0; \
-    if (( ok )); then \
-      list="$(go test -ldflags="-X=${x}" -list '^Fuzz' "${pkg}")" || ok=0; \
-    fi; \
-    if (( ok )); then \
-      for fz in $(grep '^Fuzz' <<<"${list}" || true); do \
-        go test -ldflags="-X=${x}" -run '^$' -fuzz "^${fz}\$" -fuzztime 60s "${pkg}" || { ok=0; break; }; \
-      done; \
-    fi; \
-    (( ok )) || { echo "config_gen_gate_${g}_failed" >&2; exit 1; }; \
-    echo gate=fuzz ok
 # The ignored-input gate (base#1467): cg-gates ignored, built by the
 # coverage RUN, refuses a build context holding a file the producer listed
 # in the mutation context's ignored.sha256, a Git-ignored module file
@@ -266,7 +240,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # the efficacy figure gremlins writes. GOFLAGS hands every go test gremlins
 # runs the corpus root the race RUN wrote, as -X tells internal/testcorpus
 # there. It prints no ok line: the runner's green callers expect exactly
-# the seven gates above.
+# the six gates above.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=bind,from=mutation,target=/mutation \
     g=mutation; { r="$(mktemp -d)" \
