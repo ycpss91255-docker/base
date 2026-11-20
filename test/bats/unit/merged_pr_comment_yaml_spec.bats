@@ -112,13 +112,17 @@ STUB
   export CALLS POSTED GQL_FIXTURE LIST_FIXTURE
 }
 
-# _run_step -- run the workflow's one step under the stubs.
+# _run_step -- run the workflow's one step under the stubs. The step is run
+# as a script FILE, never `bash -c`: under kcov the xtrace PS4 expands
+# ${BASH_SOURCE}, which is empty at the top level of a `bash -c` string, so
+# the step's `set -u` aborts before the step runs (see test_helper.bash).
 _run_step() {
-  local _body
-  _body="$(yaml_step_run "${WF}" comment "Announce the merge")"
+  local _script="${BATS_TEST_TMPDIR}/step.sh"
+  yaml_step_run "${WF}" comment "Announce the merge" >"${_script}"
+  [ -s "${_script}" ]
   PATH="${STUB_BIN}:${PATH}" GH_TOKEN=t REPO=me/base PR=42 \
     MERGE_SHA="${MERGE_SHA-deadbeefdeadbeefdeadbeefdeadbeefdeadbeef}" \
-    run bash -c "${_body}"
+    run bash "${_script}"
 }
 
 # why: The comment is the owner's notification, so it must say WHICH merge
