@@ -635,6 +635,49 @@ _mock_docker_tables_exec() {
   assert_cg_calls run
 }
 
+# why: setup also runs inside a container that talks to the host daemon
+#      through docker.sock (the ci-system service, init.sh, new-repo
+#      setup). There the caller's path (/source/dist/setup.toml) exists
+#      only inside that container, so a bind mount of it is resolved by the
+#      host daemon and refused: `invalid mount config for type "bind": bind
+#      source path does not exist` (observed on PR #2020's CI). The stand-in
+#      daemon here refuses every mount, bind or volume, with that message;
+#      it hands the container the caller's file only on stdin, as
+#      toml_bridge_parse does (`docker run -i ... < file`), through a pipe
+#      as docker's attach is. The answer must still be the table list.
+@test "config-gen: tables needs no host-visible path for the file (docker.sock caller, base#1937)" {
+  _seed_cg_subtree
+  [[ -n "${CONFIG_GEN_BIN:-}" && -x "${CONFIG_GEN_BIN}" ]] \
+    || fail "ci_config_gen_unprovisioned: CONFIG_GEN_BIN='${CONFIG_GEN_BIN:-}' is not an executable config-gen binary (base#1469)"
+  export CONFIG_GEN_BIN
+  _cg_mock_docker \
+    'case "$1" in
+       image) exit 0 ;;
+       run)
+         shift
+         while (($#)); do
+           case "$1" in
+             --mount|-v|--volume|--mount=*|--volume=*)
+               printf "docker: Error response from daemon: invalid mount config for type \"bind\": bind source path does not exist: /source/dist/setup.toml\n" >&2
+               exit 125 ;;
+             --rm|-i) shift ;;
+             --user) shift 2 ;;
+             *) shift; break ;;
+           esac
+         done
+         cat | "${CONFIG_GEN_BIN}" "$@" ;;
+       *) exit 1 ;;
+     esac'
+  local _wd="${BATS_TEST_TMPDIR}/source/dist"
+  mkdir -p "${_wd}"
+  printf '[a]\n[b.c]\n' > "${_wd}/setup.toml"
+
+  _run_cg_tables "${_wd}" setup.toml
+  assert_success
+  assert_output ""
+  assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
+}
+
 # why: a name that does not exist is refused on the host by a stat alone
 #      (the host never opens the path), before any container starts: a
 #      `docker run` for it would bind-mount a src that is not there. The
