@@ -32,9 +32,9 @@
 #     can hold each verdict to the file it reads (review round 2,
 #     base#1851).
 #
-# Refusal: an input root (forms, toml-test or the shared corpus) that is
-# not a directory, that holds no TOML file, or whose `find` exits non-zero
-# is config_gen_toml_oracle_failed reason=inputs root=<root>, before any
+# Refusal: an input root (forms, toml-test or the shared corpus) that
+# holds no TOML file, or whose `find` exits non-zero (as it does on a root
+# that is not there) is config_gen_toml_oracle_failed reason=inputs root=<root>, before any
 # `docker run`: the answer's row count would match the shorter list, so a
 # partial oracle would pass (review round 2, base#1851). An input path
 # with a character outside [A-Za-z0-9._/-] is
@@ -117,8 +117,7 @@ main() {
   local -a found=()
   for dir in "${_TO_INPUT_DIRS[@]}" "${_TO_CORPUS_DIR}"; do
     list=''
-    if [[ ! -d "${module}/${dir}" ]] || ! list="$(_to_find "${module}" "${dir}")" \
-      || [[ -z "${list}" ]]; then
+    if ! list="$(_to_find "${module}" "${dir}")" || [[ -z "${list}" ]]; then
       _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=inputs "root=${dir}" \
         "display=config_gen_toml_oracle_failed: ${_TO_MODULE_REL}/${dir} is absent, holds no TOML file, or could not be listed; its verdicts would be missing from the oracle"
       return 1

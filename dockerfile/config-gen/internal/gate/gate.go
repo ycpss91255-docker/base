@@ -106,9 +106,10 @@ func refusal(label string, src []byte, off int, reason Reason, text string) *Ref
 // one unit, so its second byte never starts an escape.
 var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^'\n]*'|"""(?:[^\\]|\\[^ex])*?(?:(\\[ex])|"""""|""""|""")|"(?:[^"\\\n]|\\[^ex\n])*(?:(\\[ex])|"?)`)
 
-// Check returns nil, or a *Refusal that names label and the first
-// offending byte of src (base#1850): the backslash of a `\e` or `\x`
-// escape in a basic or multi-line basic string, or the first byte (LF,
+// Check returns nil, or a *Refusal that names label and one offending
+// byte of src (base#1850). The lexical rules come first: the earliest in
+// document order of the backslash of a `\e` or `\x` escape in a basic or
+// multi-line basic string, or the first byte (LF,
 // or the CR of a CRLF) of a line ending outside a string or comment
 // whose innermost open `[` / `{` container is an inline table, the comma
 // of an inline table's trailing comma, or the first byte of a bare
@@ -120,9 +121,12 @@ var tokenPattern = regexp.MustCompile(`#[^\n]*|'''(?s:.*?)(?:'''''|''''|''')|'[^
 // multi-line literal are TOML 1.0 and are accepted. Where the structural
 // reading (tables) stops, the byte it stopped on is refused with
 // ReasonSyntax unless one of those bytes comes at or before it; nothing
-// after the stop decides the verdict. When none of those is there, it
-// refuses the first byte of the key or header that defines a key path a
-// second time (tables, base#1851).
+// after the stop decides the verdict. Only when neither a lexical rule
+// nor a stop refuses does it refuse the first byte of the key or header
+// that defines a key path a second time (tables, base#1851), so Check
+// may name a later byte than the first offending one: for `a = 1`,
+// `a = 2` and `b = "\e"` on three lines it names the escape on line 3,
+// not the second `a` (review round 2, base#1851).
 func Check(label string, src []byte) error {
 	for _, p := range bomPrefixes {
 		if bytes.HasPrefix(src, p) {
