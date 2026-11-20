@@ -123,7 +123,7 @@ _seed_tags() {
   done
 }
 
-# why: a filter with no path (`--bats-filter` alone) runs bats over unit +
+# why: a filter with no path (`--filter` alone) runs bats over unit +
 # integration and leaves the regex to bats, so the check cannot tell
 # whether the regex selects a prev-release test. It demands the fixture
 # whatever the regex, even one that matches no test at all. With a path

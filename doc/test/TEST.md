@@ -45,7 +45,7 @@ of these that is missing in a single message (event
   reads it. It is demanded when the dispatch can run that spec: the whole
   suite (plain or coverage), a shard or the fragile set holding it, or a
   path that contains it.
-  A `--bats-filter` with no path always demands it, even when the regex
+  A `--filter` with no path always demands it, even when the regex
   selects none of that spec's tests, because the regex is evaluated by
   bats and not by the check; pass a path as well to narrow the run. It
   may be empty (no release owed).
