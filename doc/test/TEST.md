@@ -42,7 +42,13 @@ of these that is missing in a single message (event
 
 - `.prev-release/tags.txt`, produced on the host by
   `script/test/prepare-prev-release.sh`. The previous-release upgrade spec
-  reads it; it is only demanded when the dispatch runs that spec.
+  reads it. It is demanded when the dispatch can run that spec: the whole
+  suite (plain or coverage), a shard or the fragile set holding it, or a
+  path that contains it.
+  A `--bats-filter` with no path always demands it, even when the regex
+  selects none of that spec's tests, because the regex is evaluated by
+  bats and not by the check; pass a path as well to narrow the run. It
+  may be empty (no release owed).
 - `HOST_UID` and `HOST_GID`, the uid and gid the suite hands the checkout
   back to (`-e HOST_UID=$(id -u) -e HOST_GID=$(id -g)`).
 

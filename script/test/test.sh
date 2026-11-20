@@ -1323,10 +1323,11 @@ _dispatch_needs_prev_release() {
     return
   fi
   if [[ -n "${BATS_FILTER:-}" ]]; then
-    # A bare filter runs bats over both directories. Its regex could still
-    # select none of that spec's tests, but the regex is bats' to evaluate
-    # and the conservative answer is the one that cannot hide a missing
-    # fixture.
+    # A bare filter runs bats over both directories, and its regex is
+    # bats' to evaluate, so a filter-only dispatch ALWAYS demands the
+    # fixture -- even one whose regex selects none of that spec's tests.
+    # The conservative answer is the one that cannot hide a missing
+    # fixture; doc/test/TEST.md states this rule for users.
     return 0
   fi
   if [[ -n "${BATS_UNIT_SHARD:-}" ]]; then
@@ -1361,10 +1362,12 @@ _dispatch_needs_prev_release() {
 #   diagnosis ahead of every phase: every missing one is reported in a
 #   single refusal, by name.
 #
-#   .prev-release/tags.txt is only demanded of a dispatch that runs the
+#   .prev-release/tags.txt is demanded of a dispatch that can run the
 #   spec reading it (_dispatch_needs_prev_release replays this same
 #   dispatch), so a lint or single-spec run elsewhere is not refused for a
-#   fixture it never reads. The file must exist but may be empty:
+#   fixture it never reads. A filter with no path is the one conservative
+#   case: it is always demanded, whatever the regex selects. The file
+#   must exist but may be empty:
 #   prepare-prev-release.sh writes it empty when no release is owed.
 _check_suite_prerequisites() {
   local _root="${1:-${REPO_ROOT}}"
