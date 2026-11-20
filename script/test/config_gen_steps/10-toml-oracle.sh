@@ -32,7 +32,12 @@
 #     can hold each verdict to the file it reads (review round 2,
 #     base#1851).
 #
-# Refusal: an input path with a character outside [A-Za-z0-9._/-] is
+# Refusal: an input root (forms, toml-test or the shared corpus) that is
+# not a directory, that holds no TOML file, or whose `find` exits non-zero
+# is config_gen_toml_oracle_failed reason=inputs root=<root>, before any
+# `docker run`: the answer's row count would match the shorter list, so a
+# partial oracle would pass (review round 2, base#1851). An input path
+# with a character outside [A-Za-z0-9._/-] is
 # config_gen_toml_oracle_failed reason=name file=<rel>, before any
 # `docker run` and before the toml-oracle directory exists: a verdict row
 # is keyed by path, and such a name may not survive the tar, the oracle
@@ -84,9 +89,21 @@ with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
             verdict = "refuse"
         sys.stdout.write(member.name + "\t" + verdict + "\t" + hashlib.sha256(raw).hexdigest() + "\n")'
 
+# _to_find <module> <root> -- the TOML files of one input root, relative
+# to <module>, one per line; find's own status. The shared corpus is one
+# level of slice directories with the files directly inside each.
+_to_find() {
+  cd -- "${1}" || return
+  if [[ "${2}" == "${_TO_CORPUS_DIR}" ]]; then
+    find "${2}" -mindepth 2 -maxdepth 2 -type f -path "${2}/s*/*.toml"
+  else
+    find "${2}" -type f -name '*.toml'
+  fi
+}
+
 main() {
   local image module dir out
-  local -a dirs=() files=()
+  local -a files=()
 
   if ! image="$(tool_image_derive toml_bridge)" \
     || ! tool_image_ensure toml_bridge "${image}"; then
@@ -96,18 +113,20 @@ main() {
   fi
 
   module="${_TO_ROOT}/${_TO_MODULE_REL}"
-  for dir in "${_TO_INPUT_DIRS[@]}"; do
-    [[ -d "${module}/${dir}" ]] && dirs+=("${dir}")
+  local list sorted
+  local -a found=()
+  for dir in "${_TO_INPUT_DIRS[@]}" "${_TO_CORPUS_DIR}"; do
+    list=''
+    if [[ ! -d "${module}/${dir}" ]] || ! list="$(_to_find "${module}" "${dir}")" \
+      || [[ -z "${list}" ]]; then
+      _log_err "${_TO_SERVICE}" config_gen_toml_oracle_failed reason=inputs "root=${dir}" \
+        "display=config_gen_toml_oracle_failed: ${_TO_MODULE_REL}/${dir} is absent, holds no TOML file, or could not be listed; its verdicts would be missing from the oracle"
+      return 1
+    fi
+    found+=("${list}")
   done
-  local corpus=''
-  [[ -d "${module}/${_TO_CORPUS_DIR}" ]] && corpus="${_TO_CORPUS_DIR}"
-  if (( ${#dirs[@]} > 0 )) || [[ -n "${corpus}" ]]; then
-    mapfile -t files < <(cd -- "${module}" && {
-      (( ${#dirs[@]} == 0 )) || find "${dirs[@]}" -type f -name '*.toml'
-      [[ -z "${corpus}" ]] || find "${corpus}" -mindepth 2 -maxdepth 2 -type f \
-        -path "${corpus}/s*/*.toml"
-    } | LC_ALL=C sort)
-  fi
+  sorted="$(printf '%s\n' "${found[@]}" | LC_ALL=C sort)"
+  mapfile -t files <<<"${sorted}"
 
   local f
   for f in "${files[@]}"; do
