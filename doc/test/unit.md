@@ -1693,7 +1693,7 @@ hint, default `$SHELL` detection, and uninstall.
 | `install is idempotent: a re-run overwrites cleanly` | overwrite-on-reinstall |
 | `--shell with no value is a usage error, not an infinite loop (#955)` | missing flag value -> exit 1, no arg-loop spin |
 
-### test/bats/unit/compose_emit/blocks_spec.bats (34)
+### test/bats/unit/compose_emit/blocks_spec.bats (38)
 
 Covers the per-service compose emitter (`_emit_stage_service`) and its
 shared leaf-emitter sub-seams, hoisted out of `generate_compose_yaml`
@@ -1708,6 +1708,9 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_caps_block: all empty emits nothing` | caps off |
 | `_emit_caps_block: cap_add list emits cap_add block` | cap_add |
 | `_emit_caps_block: cap_drop + security_opt emit their blocks` | cap_drop/sec_opt |
+| `_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)` | base#1651 -- a security_opt value with YAML syntax in it (`: `, ` #`, a leading `*` / `&` / `#`, a `"`) must parse back as that exact string, not as a map, a truncated value, an alias, an anchor or a comment. |
+| `_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)` | base#1651 -- a plain scalar also gets an implicit tag: `~` / `null` resolve to null, `true` to bool, `0755` / `1e3` / `.inf` to numbers, and compose-go then refuses the file ("security_opt.0 must be a string"). `yes` (bool) and `1:30` (sexagesimal) are YAML 1.1-only, so yq (1.2) cannot tell; those two are checked against the spec's double-quoted form. |
+| `_emit_caps_block: cap_add and cap_drop items parse back as the exact input string (base#1651)` | base#1651 -- cap_add and cap_drop are written by their own loops, so the same values (YAML syntax and implicit non-string types) must parse back as the exact input string in both lists, not only in security_opt. |
 | `_emit_env_file_block: emits the generated .env then the operator's .env.local (#868)` | - |
 | `_emit_env_file_block: 'own' drops the shared .env, keeping .env.local (#868)` | - |
 | `_emit_target_arch_line: empty omits the line; set emits literal TARGET_ARCH ref` | - |
@@ -1722,6 +1725,7 @@ whole ~900-line generator and grepping its YAML output.
 | `_emit_additional_contexts_block: empty omits; entries emit block` | additional_contexts |
 | `_emit_cgroup_rules_block: empty omits; entries emit quoted rules` | cgroup rules |
 | `_emit_tmpfs_block: empty omits; entries emit tmpfs list` | tmpfs |
+| `_emit_tmpfs_block: items parse back as the exact input string (base#1651)` | base#1651 -- tmpfs items are written by their own loop, so a value with YAML syntax in it or an implicit non-string type must also parse back as the exact input string, not only the caps lists. |
 | `_emit_group_add_block: gated on gui AND non-empty groups; emits quoted gids` | #496 group_add |
 | `_emit_user_build_args: empty omits; entries emit KEY: ${KEY} pairs` | build args |
 | `_logging_svc_kv: seeds from global then overlays per-service (key-level merge)` | logging merge |

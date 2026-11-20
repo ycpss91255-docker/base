@@ -23,6 +23,29 @@ setup() {
   source /source/dist/script/docker/wrapper/setup.sh
 }
 
+# _assert_list_parses_back <yaml_file> <key> <want...>
+#
+# base#1651 -- the oracle for "a list item parses back as the exact
+# input string": `.s.<key>` has one item per <want>, and item i is tagged
+# `!!str` and equals want[i]. The tag check is what tells `null` the string
+# from `null` the null; the value check alone would pass both.
+_assert_list_parses_back() {
+  local _file="$1" _key="$2" _i
+  shift 2
+  local -a _want=("$@")
+  run yq ".s.${_key} | length" "${_file}"
+  assert_success
+  assert_output "${#_want[@]}"
+  for _i in "${!_want[@]}"; do
+    run yq ".s.${_key}[${_i}] | tag" "${_file}"
+    assert_success
+    assert_output '!!str'
+    run yq ".s.${_key}[${_i}]" "${_file}"
+    assert_success
+    assert_output "${_want[${_i}]}"
+  done
+}
+
 # ════════════════════════════════════════════════════════════════════
 # _emit_gpu_deploy_block <gui> <count> <caps_yaml>
 # ════════════════════════════════════════════════════════════════════
@@ -70,6 +93,54 @@ setup() {
   assert_line "      - MKNOD"
   assert_line "    security_opt:"
   assert_line "      - no-new-privileges:true"
+}
+
+# why: base#1651 -- a security_opt value with YAML syntax in it (`: `, ` #`,
+# a leading `*` / `&` / `#`, a `"`) must parse back as that exact string,
+# not as a map, a truncated value, an alias, an anchor or a comment.
+@test "_emit_caps_block: security_opt items with YAML syntax parse back as the exact input string (base#1651)" {
+  local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead')
+  run _emit_caps_block "" "" "$(printf '%s\n' "${_want[@]}")"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" security_opt "${_want[@]}"
+}
+
+# why: base#1651 -- a plain scalar also gets an implicit tag: `~` / `null`
+# resolve to null, `true` to bool, `0755` / `1e3` / `.inf` to numbers, and
+# compose-go then refuses the file ("security_opt.0 must be a string").
+# `yes` (bool) and `1:30` (sexagesimal) are YAML 1.1-only, so yq (1.2) cannot
+# tell; those two are checked against the spec's double-quoted form.
+@test "_emit_caps_block: security_opt items that resolve to a non-string type parse back as the exact input string (base#1651)" {
+  local -a _want=('~' 'null' 'true' '0755' '1e3' '.inf')
+  run _emit_caps_block "" "" "$(printf '%s\n' "${_want[@]}")"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" security_opt "${_want[@]}"
+  run _emit_caps_block "" "" $'yes\n1:30'
+  assert_success
+  assert_line '      - "yes"'
+  assert_line '      - "1:30"'
+}
+
+# why: base#1651 -- cap_add and cap_drop are written by their own loops, so
+# the same values (YAML syntax and implicit non-string types) must parse back
+# as the exact input string in both lists, not only in security_opt.
+@test "_emit_caps_block: cap_add and cap_drop items parse back as the exact input string (base#1651)" {
+  local -a _want=('label=a: b' 'x #y' '*anchor' '&ref' '#c' '"lead'
+    '~' 'null' 'true' '0755' '1e3' '.inf')
+  local _in _key
+  _in="$(printf '%s\n' "${_want[@]}")"
+  run _emit_caps_block "${_in}" "${_in}" ""
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  for _key in cap_add cap_drop; do
+    _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" "${_key}" "${_want[@]}"
+  done
+  run _emit_caps_block $'yes\n1:30' $'yes\n1:30' ""
+  assert_success
+  assert_equal "$(grep -c '^      - "yes"$' <<< "${output}")" 2
+  assert_equal "$(grep -c '^      - "1:30"$' <<< "${output}")" 2
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -218,6 +289,17 @@ EXPECTED
   assert_line "    tmpfs:"
   assert_line "      - /run"
   assert_line "      - /tmp:size=64m"
+}
+
+# why: base#1651 -- tmpfs items are written by their own loop, so a value with
+# YAML syntax in it or an implicit non-string type must also parse back as
+# the exact input string, not only the caps lists.
+@test "_emit_tmpfs_block: items parse back as the exact input string (base#1651)" {
+  local -a _want=('/x: y' '/t #c' '*a' '&b' '#d' '"e' 'null' '0755')
+  run _emit_tmpfs_block "$(printf '%s\n' "${_want[@]}")"
+  assert_success
+  printf 's:\n%s\n' "${output}" > "${BATS_TEST_TMPDIR}/c.yaml"
+  _assert_list_parses_back "${BATS_TEST_TMPDIR}/c.yaml" tmpfs "${_want[@]}"
 }
 
 # why: #496 group_add
