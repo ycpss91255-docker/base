@@ -67,6 +67,8 @@ _seed_digest_tree() {
   refute_output "${WANT_DIGEST}"
 }
 
+# why: acceptance 2. Dockerfile.config-gen itself is a digest input, so a
+#      content edit of it must change the value.
 @test "config_gen_digest: a content edit of Dockerfile.config-gen changes the value" {
   _seed_digest_tree
   printf '# edit\n' >> "${SUB}/dockerfile/Dockerfile.config-gen"
@@ -75,6 +77,8 @@ _seed_digest_tree() {
   refute_output "${WANT_DIGEST}"
 }
 
+# why: acceptance 2. Dockerfile.test-tools and script/ are not digest
+#      inputs, so editing them must leave the value unchanged.
 @test "config_gen_digest: editing Dockerfile.test-tools or a file under script/ leaves the value" {
   _seed_digest_tree
   printf '# edit\n' >> "${SUB}/dockerfile/Dockerfile.test-tools"
