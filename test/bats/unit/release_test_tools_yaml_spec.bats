@@ -1886,3 +1886,34 @@ _filter_selects() {
         "this workflow's push filter selects ${_p}, which cannot change what the tooling image contains: every merge would republish :main, and a run that publishes nothing can evict a queued one from the concurrency group"
   done
 }
+
+# why: The test-tools image carries a config-gen digest as a build arg
+# (`ARG CONFIG_GEN_DIGEST=` in Dockerfile.test-tools), taken from
+# script/ci/config_gen_digest.sh. The release build step has to compute it
+# before the build and hand it over, or every published image carries the
+# empty default (base#2043).
+@test "release-test-tools.yaml: a config_gen_digest step records the script's output (base#2043)" {
+  local _body
+  _body="$(grep -n -A8 -F 'id: config_gen_digest' "${WF}")" || fail \
+      "no step with id config_gen_digest: the build has no digest to pass"
+  [[ "${_body}" == *"script/ci/config_gen_digest.sh"* ]] || fail \
+      "the config_gen_digest step does not run script/ci/config_gen_digest.sh"
+  [[ "${_body}" == *"GITHUB_OUTPUT"* ]] || fail \
+      "the config_gen_digest step does not write its result to GITHUB_OUTPUT"
+}
+
+@test "release-test-tools.yaml: the build step passes CONFIG_GEN_DIGEST as a build arg (base#2043)" {
+  run grep -c -F -x '          build-args: CONFIG_GEN_DIGEST=${{ steps.config_gen_digest.outputs.config_gen_digest }}' "${WF}"
+  [[ "${output}" == "1" ]] || fail \
+      "the id: build step does not carry the exact CONFIG_GEN_DIGEST build-args line"
+}
+
+@test "release-test-tools.yaml: the digest step runs before the build step (base#2043)" {
+  local _d _b
+  _d="$(grep -n -F 'id: config_gen_digest' "${WF}" | head -1 | cut -d: -f1)"
+  _b="$(grep -n -E '^        id: build$' "${WF}" | head -1 | cut -d: -f1)"
+  [[ -n "${_d}" ]] || fail "no config_gen_digest step"
+  [[ -n "${_b}" ]] || fail "no id: build step"
+  (( _d < _b )) || fail \
+      "config_gen_digest (line ${_d}) is not before the build step (line ${_b})"
+}
