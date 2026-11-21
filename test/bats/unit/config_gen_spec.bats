@@ -471,9 +471,10 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
 # _cg_poison_native
 #   Unless a test put its own config-gen on PATH (under the test's temp
 #   dir), put one first that carries this checkout's own digest and
-#   answers every other call with nothing and status 0. It is the state a test-tools image built with the digest
-#   stamped (base#2043) leaves PATH in; a test that mocks docker to check
-#   the container path must not be moved by it (base#2099).
+#   answers every other call with nothing and status 0. It is the state a
+#   test-tools image built with the digest stamped (base#2043) leaves PATH
+#   in; a test that mocks docker to check the container path must not be
+#   moved by it (base#2099).
 _cg_poison_native() {
   local _bin="${BATS_TEST_TMPDIR}/poison-bin" _d _have
   _have="$(command -v config-gen 2> /dev/null || true)"
