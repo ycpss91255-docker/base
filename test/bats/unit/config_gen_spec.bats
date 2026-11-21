@@ -1263,7 +1263,7 @@ _cg_own_digest() {
 # _cg_native_count <stderr-text> -- config_gen_native_stale records in it.
 _cg_native_count() {
   local _n
-  _n="$(grep -c '"event":"config_gen_native_stale"' <<< "$1" || true)"
+  _n="$(grep -c '"body":"config_gen_native_stale"' <<< "$1" || true)"
   printf '%s' "${_n:-0}"
 }
 
