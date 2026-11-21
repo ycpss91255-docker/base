@@ -1,0 +1,7 @@
+rc=0
+mode=644
+--- file
+old1
+x
+--- stdout
+--- stderr

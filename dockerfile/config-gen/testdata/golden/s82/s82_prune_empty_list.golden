@@ -1,0 +1,8 @@
+rc=0
+mode=644
+--- file
+old1
+# managed by template (do not remove)
+old1
+--- stdout
+--- stderr
