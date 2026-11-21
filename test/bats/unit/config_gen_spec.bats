@@ -468,12 +468,30 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
 
 # ── config_gen_tables (base#1470) ────────────────────────────────────────────
 
+# _cg_poison_native
+#   Unless a test put its own config-gen on PATH (under the test's temp
+#   dir), put one first that carries this checkout's own digest and
+#   answers every other call with nothing and status 0. It is the state a test-tools image built with the digest
+#   stamped (base#2043) leaves PATH in; a test that mocks docker to check
+#   the container path must not be moved by it (base#2099).
+_cg_poison_native() {
+  local _bin="${BATS_TEST_TMPDIR}/poison-bin" _d _have
+  _have="$(command -v config-gen 2> /dev/null || true)"
+  [[ "${_have}" == "${BATS_TEST_TMPDIR}/"* ]] && return 0
+  _d="$(_cg_own_digest)"
+  mkdir -p "${_bin}"
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == version ]]; then printf "toolchain 1.27.2\\ndigest %%s\\n" "%s"; fi\nexit 0\n' "${_d}" > "${_bin}/config-gen"
+  chmod +x "${_bin}/config-gen"
+  PATH="${_bin}:${PATH}"
+}
+
 # _run_cg_tables <wd> <name>
 #   `run` config_gen_tables <name> out from <wd> in a fresh shell with JSON
 #   logs and stderr kept apart; out is preset to `stale`, so a value that
 #   survives a refusal shows. _cg_tables_seen prints out's final value in
 #   brackets.
 _run_cg_tables() {
+  _cg_poison_native
   CGT_NAME="$2" LOG_FORMAT=json run --separate-stderr timeout 10 bash -c "cd '$1' || exit 9
 source '${CG}'
 out=stale
