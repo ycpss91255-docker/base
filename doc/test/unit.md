@@ -2222,6 +2222,28 @@ PATH answers `go list` and `go test` from canned files here.
 | `coverage.sh: an empty record, a blank-line record and no argument are refused with reason corpus_root_missing before go runs (base#1468)` | A record that exists but is empty, a record holding only a blank line, and no argument at all deliver no root either. Each must stop at the same guard as a missing file, before go runs; a check that only asks whether the file exists passes the first two, and under set -u an unset variable exits without the refusal line (base#1468). Without the guard this listing reads reason=test_failed pkg=m/a. |
 | `coverage.sh: every go test receives the corpus root record as -ldflags=-X (base#1468)` | Validating the record and then dropping it leaves every go test with an empty testcorpus root, which reads as test_failed in the real image. The validated root has to reach each package's go test as one -ldflags -X token (base#1468). The expected token is the record line verbatim. |
 
+### test/bats/unit/config_gen_digest_spec.bats (5)
+
+the shell shim compares ${tag#*:} of `tool_image_derive config_gen` against
+the digest stamped into the test-tools image. The three build paths of that
+image call this script instead of each deriving the digest, so the script
+must print exactly that value, move with the config-gen sources and stay put
+for everything else, and refuse (empty stdout, non-zero) when no digest can
+be derived.
+
+The subtree is a scratch copy so the script runs against a seeded tree. The
+expected digest is the literal observed from the shell library itself
+(`tool_image_derive config_gen` -> config-gen:b3b5e2b5cdca), not recomputed
+here. Unit level (ADR-00000018).
+
+| Test | Description |
+|------|-------------|
+| `config_gen_digest: prints the 12 hex of config-gen:<digest>, one line, exit 0` | acceptance 1. One line, 12 lowercase hex, exit 0, equal to the part after the colon of the shell library's own answer on this tree. |
+| `config_gen_digest: a content edit under dockerfile/config-gen changes the value` | acceptance 2. The digest follows the config-gen sources and nothing else. |
+| `config_gen_digest: a content edit of Dockerfile.config-gen changes the value` | acceptance 2. Dockerfile.config-gen itself is a digest input, so a content edit of it must change the value. |
+| `config_gen_digest: editing Dockerfile.test-tools or a file under script/ leaves the value` | acceptance 2. Dockerfile.test-tools and script/ are not digest inputs, so editing them must leave the value unchanged. |
+| `config_gen_digest: no Dockerfile.config-gen prints nothing, exits non-zero, forwards the refusal` | acceptance 3. No derivable digest: nothing on stdout, non-zero, and the library's refusal reaches stderr unchanged. |
+
 ### test/bats/unit/config_gen_floors_base_spec.bats (3)
 
 The coverage ratchet refuses a floor lower than the base's, and it can only
