@@ -1921,3 +1921,19 @@ _filter_selects() {
   (( _d < _b )) || fail \
       "config_gen_digest (line ${_d}) is not before the build step (line ${_b})"
 }
+
+# why: a command substitution inside an echo argument discards the script's
+#      exit status, so a failing config_gen_digest.sh would still write an
+#      empty output and the build would publish with the empty default. The
+#      script has to be assigned on its own line so a non-zero exit fails the
+#      step (base#2043).
+@test "release-test-tools.yaml: the digest script's failure fails the step (base#2043)" {
+  local _body
+  _body="$(grep -n -A8 -F 'id: config_gen_digest' "${WF}")" || fail \
+      "no step with id config_gen_digest"
+  if grep -E 'echo.*\$\(script/ci/config_gen_digest\.sh\)' <<<"${_body}"; then
+    fail "the script runs inside an echo command substitution, which swallows its exit status"
+  fi
+  grep -E '^[0-9]+-[[:space:]]+_?[A-Za-z_]+="\$\(script/ci/config_gen_digest\.sh\)"$' <<<"${_body}" || fail \
+      "the script is not assigned to a variable on its own line"
+}
