@@ -1,0 +1,3 @@
+section	stage:dev
+entry	stage:dev	gui.mode	auto
+entry	stage:dev	name	dev

@@ -1,0 +1,4 @@
+section	image
+section	build
+entry	image	base	example:tag
+entry	build	target_arch	x86_64

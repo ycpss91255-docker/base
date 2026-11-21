@@ -2044,6 +2044,22 @@ on hand-edited / malformed setup.conf:
 | `_conf_split_nskey: sourcing conf.sh alone carries the registry with it (base#1185)` | base#1185 -- conf.sh gains its first dependency on schema.sh, and it must declare that itself rather than trust the caller |
 | `_conf_split_nskey: refuses rather than guessing when the registry is gone (base#1185)` | base#1185 -- an unloaded registry must not read as "nothing is sub-sectioned", an answer worse than the literal it replaced |
 
+### test/bats/unit/conf_ini_golden_spec.bats (3)
+
+`_ini_tokenize` is the single shell INI tokenizer. The Go reader that
+replaces it (the later `ini tokens` slice) must match it byte for byte, so
+the shell's answer for every corpus input is recorded once in
+dockerfile/config-gen/testdata/golden/s25/<stem>.tokens.golden and this spec
+holds the shell to that record. A golden is tab-separated lines:
+`section<TAB><name>` per section, then
+`entry<TAB><section><TAB><key><TAB><value>` per entry.
+
+| Test | Description |
+|------|-------------|
+| `the s25 corpus holds its eight inputs` | a corpus input added or dropped without a golden changes what the Go reader is held to; the count makes that a visible edit. |
+| `every s25 input has a golden, and no golden is orphaned` | an input without a golden is compared against nothing, and a golden without an input is a record of nothing. |
+| `_ini_tokenize over every s25 input matches its golden byte for byte` | this is the record itself: the shell answer the Go reader must reproduce byte for byte. |
+
 ### test/bats/unit/conf_logging_spec.bats (12)
 
 Unit tests for the logging-config collectors (`_parse_logging_svc_sections`
