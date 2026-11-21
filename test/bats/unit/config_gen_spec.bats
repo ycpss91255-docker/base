@@ -468,13 +468,34 @@ printf 'cg=%s\n' \"\${_CONFIG_GEN_RESOLVED}\""
 
 # ── config_gen_tables (base#1470) ────────────────────────────────────────────
 
+# _cg_poison_native
+#   Unless a test put its own config-gen on PATH (under the test's temp
+#   dir), put one first that carries this checkout's own digest and
+#   answers every other call with nothing and status 0. It is the state a
+#   test-tools image built with the digest stamped (base#2043) leaves PATH
+#   in; a test that mocks docker to check the container path must not be
+#   moved by it (base#2099).
+_cg_poison_native() {
+  local _bin="${BATS_TEST_TMPDIR}/poison-bin" _d _have
+  _have="$(command -v config-gen 2> /dev/null || true)"
+  [[ "${_have}" == "${BATS_TEST_TMPDIR}/"* ]] && return 0
+  _d="$(_cg_own_digest)"
+  mkdir -p "${_bin}"
+  printf '#!/usr/bin/env bash\nif [[ "${1:-}" == version ]]; then printf "toolchain 1.27.2\\ndigest %%s\\n" "%s"; fi\nexit 0\n' "${_d}" > "${_bin}/config-gen"
+  chmod +x "${_bin}/config-gen"
+  PATH="${_bin}:${PATH}"
+}
+
 # _run_cg_tables <wd> <name>
 #   `run` config_gen_tables <name> out from <wd> in a fresh shell with JSON
 #   logs and stderr kept apart; out is preset to `stale`, so a value that
 #   survives a refusal shows. _cg_tables_seen prints out's final value in
-#   brackets.
+#   brackets. CONFIG_GEN_FORCE_DOCKER defaults to 1 so a docker-mock test
+#   stays on the container whatever config-gen is on PATH (base#2099); a
+#   native-path test sets it to 0.
 _run_cg_tables() {
-  CGT_NAME="$2" LOG_FORMAT=json run --separate-stderr timeout 10 bash -c "cd '$1' || exit 9
+  _cg_poison_native
+  CGT_NAME="$2" CONFIG_GEN_FORCE_DOCKER="${CONFIG_GEN_FORCE_DOCKER:-1}" LOG_FORMAT=json run --separate-stderr timeout 10 bash -c "cd '$1' || exit 9
 source '${CG}'
 out=stale
 config_gen_tables \"\${CGT_NAME}\" out
@@ -1400,7 +1421,7 @@ _cg_native_tables_stub() {
   _cg_native_tables_stub '[[ "$*" == "tables --name layer.toml layer.toml" ]] || exit 9
 printf "a\nb\nb.c\n"'
 
-  PATH="${NATIVE_PATH}" _run_cg_tables "${_wd}" layer.toml
+  PATH="${NATIVE_PATH}" CONFIG_GEN_FORCE_DOCKER=0 _run_cg_tables "${_wd}" layer.toml
   assert_success
   assert_output ""
   assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
@@ -1418,7 +1439,7 @@ printf "a\nb\nb.c\n"'
   _cg_native_tables_stub 'printf "D\0error\0config_gen_output_failed\0layer.toml\0\0\0\0write /dev/stdout: broken pipe\0" >&2
 exit 1'
 
-  PATH="${NATIVE_PATH}" _run_cg_tables "${_wd}" layer.toml
+  PATH="${NATIVE_PATH}" CONFIG_GEN_FORCE_DOCKER=0 _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 config_gen_output_failed "file=layer.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
   assert_cg_calls
@@ -1434,7 +1455,7 @@ exit 1'
   printf '[a]\n' > "${_wd}/layer.toml"
   _cg_native_tables_stub 'exit 1'
 
-  PATH="${NATIVE_PATH}" _run_cg_tables "${_wd}" layer.toml
+  PATH="${NATIVE_PATH}" CONFIG_GEN_FORCE_DOCKER=0 _run_cg_tables "${_wd}" layer.toml
   assert_refusal 1 config_gen_run_failed "file=layer.toml" "status=1"
   assert_equal "$(log_event_ids "${stderr}" | grep -cx config_gen_run_failed)" 1
   assert_equal "$(_cg_tables_seen)" "[]"
@@ -1474,7 +1495,7 @@ exit 1'
   printf '[a]\n[b.c]\n' > "${_wd}/layer.toml"
   _cg_native_stub "printf 'toolchain 1.27.2\ndigest ffffffffffff\n'"
 
-  PATH="${NATIVE_PATH}" _run_cg_tables "${_wd}" layer.toml
+  PATH="${NATIVE_PATH}" CONFIG_GEN_FORCE_DOCKER=0 _run_cg_tables "${_wd}" layer.toml
   assert_success
   assert_equal "$(_cg_tables_seen)" "$(printf '[a\nb\nb.c\n]')"
   assert_equal "$(_cg_native_count "${stderr}")" 1
@@ -1491,7 +1512,7 @@ exit 1'
   mkdir -p "${_wd}"
   _cg_native_tables_stub 'printf "a\n"'
 
-  PATH="${NATIVE_PATH}" _run_cg_tables "${_wd}" missing.toml
+  PATH="${NATIVE_PATH}" CONFIG_GEN_FORCE_DOCKER=0 _run_cg_tables "${_wd}" missing.toml
   assert_refusal 1 no_such_file "file=missing.toml"
   assert_equal "$(_cg_tables_seen)" "[]"
   assert_cg_calls
