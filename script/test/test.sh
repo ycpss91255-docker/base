@@ -1993,6 +1993,10 @@ _resolve_test_tools_image() {
   return 0
 }
 
+# base#2044: PATH as it was when this file was sourced (see the digest step
+# in _ensure_test_tools_image).
+_TEST_SH_SOURCED_PATH="${PATH}"
+
 # _ensure_test_tools_image <image> <project>
 #
 # Makes the DERIVED tooling tag exist before a compose run reads it.
@@ -2049,7 +2053,10 @@ _ensure_test_tools_image() {
   # value reaches the build through this environment. Assigned on its own
   # line so a failing script is seen here and not masked by `export`.
   local _config_gen_digest
-  if ! _config_gen_digest="$("${REPO_ROOT}/script/ci/config_gen_digest.sh")"; then
+  # The script needs bash and dirname on PATH; the PATH
+  # captured when this file was sourced is the one that has them, even when
+  # a caller narrows PATH to a docker stub before calling in.
+  if ! _config_gen_digest="$(PATH="${_TEST_SH_SOURCED_PATH}" "${REPO_ROOT}/script/ci/config_gen_digest.sh")"; then
     _die ci_tooling_build_failed \
       "could not compute the config-gen digest (script/ci/config_gen_digest.sh failed), so the tooling image ${_image} was not built."
   fi
