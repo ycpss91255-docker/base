@@ -2240,12 +2240,12 @@ Unit level (ADR-00000018).
 
 | Test | Description |
 |------|-------------|
-| `config_gen_digest: prints the 12 hex of config-gen:<digest>, one line, exit 0` | acceptance 1. One line, 12 lowercase hex, exit 0, equal to the part after the colon of the shell library's own answer on this tree. |
+| `config_gen_digest: prints the 12 hex of config-gen:<digest>, one line, exit 0` | acceptance 1. One line, 12 lowercase hex, exit 0, equal to the digest pinned in WANT_DIGEST for the fixed synthetic tree. |
 | `config_gen_digest: a content edit under dockerfile/config-gen changes the value` | acceptance 2. The digest follows the config-gen sources and nothing else. |
 | `config_gen_digest: a content edit of Dockerfile.config-gen changes the value` | acceptance 2. Dockerfile.config-gen itself is a digest input, so a content edit of it must change the value. |
 | `config_gen_digest: editing Dockerfile.test-tools or a file under script/ leaves the value` | acceptance 2. Dockerfile.test-tools and script/ are not digest inputs, so editing them must leave the value unchanged. |
 | `config_gen_digest: no Dockerfile.config-gen prints nothing, exits non-zero, forwards the refusal` | acceptance 3. No derivable digest: nothing on stdout, non-zero, and the library's refusal reaches stderr unchanged. |
-| `config_gen_digest: an extra testdata file in the live checkout does not move the digest` | acceptance 3 (base#2104). The spec must not read the live dockerfile/config-gen: a checkout whose dockerfile/ holds an extra testdata file gives the same pinned digest. |
+| `config_gen_digest: an extra testdata file in the live checkout does not move the digest` | base#2104. The spec must not read the live dockerfile/config-gen: a checkout whose dockerfile/ holds an extra testdata file gives the same pinned digest. |
 
 ### test/bats/unit/config_gen_floors_base_spec.bats (3)
 
