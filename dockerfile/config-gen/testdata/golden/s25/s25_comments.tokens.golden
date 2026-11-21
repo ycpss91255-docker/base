@@ -1,0 +1,4 @@
+section	image
+section	build
+entry	image	base	ubuntu:22.04
+entry	build	target_arch	x86_64

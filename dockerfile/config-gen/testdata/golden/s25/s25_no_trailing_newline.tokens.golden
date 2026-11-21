@@ -1,0 +1,4 @@
+section	image
+section	build
+entry	image	base	ubuntu
+entry	build	target	last

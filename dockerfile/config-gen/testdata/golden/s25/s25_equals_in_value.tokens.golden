@@ -1,0 +1,3 @@
+section	environment
+entry	environment	env_1	TOKEN=abc=def
+entry	environment	env_2	a = b

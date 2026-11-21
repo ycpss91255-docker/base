@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 #
 # conf_ini_golden_spec.bats -- the INI corpus held to recorded bytes
-# (base#2053, S25a under #1757).
+# (base#2053, S25a under base#1757).
 #
 # why: `_ini_tokenize` is the single shell INI tokenizer. The Go reader
 # that replaces it (the later `ini tokens` slice) must match it byte for
@@ -36,11 +36,15 @@ _tokens_of() {
   done
 }
 
+# why: a corpus input added or dropped without a golden changes what the
+# Go reader is held to; the count makes that a visible edit.
 @test "the s25 corpus holds its eight inputs" {
   local -a _f=("${CORPUS}"/*.ini)
   assert_equal "${#_f[@]}" "8"
 }
 
+# why: an input without a golden is compared against nothing, and a golden
+# without an input is a record of nothing.
 @test "every s25 input has a golden, and no golden is orphaned" {
   local _f _stem _missing=""
   for _f in "${CORPUS}"/*.ini; do
@@ -59,6 +63,8 @@ _tokens_of() {
   done
 }
 
+# why: this is the record itself: the shell answer the Go reader must
+# reproduce byte for byte.
 @test "_ini_tokenize over every s25 input matches its golden byte for byte" {
   local _f _stem _bad=""
   for _f in "${CORPUS}"/*.ini; do

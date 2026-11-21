@@ -1,0 +1,4 @@
+section	deploy
+entry	deploy	gpu	
+entry	deploy	arg_1	
+entry	deploy	name	x
