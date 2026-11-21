@@ -1902,12 +1902,16 @@ _filter_selects() {
       "the config_gen_digest step does not write its result to GITHUB_OUTPUT"
 }
 
+# why: computing the digest is not enough; the build step has to carry it as
+#      the CONFIG_GEN_DIGEST build arg the Dockerfile declares (base#2043).
 @test "release-test-tools.yaml: the build step passes CONFIG_GEN_DIGEST as a build arg (base#2043)" {
   run grep -c -F -x '          build-args: CONFIG_GEN_DIGEST=${{ steps.config_gen_digest.outputs.config_gen_digest }}' "${WF}"
   [[ "${output}" == "1" ]] || fail \
       "the id: build step does not carry the exact CONFIG_GEN_DIGEST build-args line"
 }
 
+# why: a step's output is only readable by steps after it, so the digest
+#      step has to come before the build step that consumes it (base#2043).
 @test "release-test-tools.yaml: the digest step runs before the build step (base#2043)" {
   local _d _b
   _d="$(grep -n -F 'id: config_gen_digest' "${WF}" | head -1 | cut -d: -f1)"
