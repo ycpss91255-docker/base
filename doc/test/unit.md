@@ -2456,7 +2456,7 @@ the shell's word and not the Go package's.
 | `s6_sections: every source=shell row is what _setup_conf_check_known reports` | The Go half (TestCheckSectionsCorpus) holds config-gen check on every corpus/s6/sections/ file equal to s6_sections.tsv. This half holds the table's source=shell rows equal to what the real _setup_conf_check_known reports for the same file, so the section-text classification ([logging.""], stage tables, empty arrays judged by their first entry's row) is the shell's, not the Go package's (base#1442 review round 3 finding 1). |
 | `s6_kinds: the int and bool keys are the keys _schema_validate types, each with every wrong-kind row` | The Go half (TestCheckKinds) refuses a value of another TOML kind at every key s6_kinds.tsv marks int or bool. This half holds that set equal to the keys schema.sh itself types, read off _schema_validate on a pinned probe set for every SCHEMA_VALIDATOR key, in both directions: a typed key added to schema.sh with no rows fails here, and so does a row marking a key the shell does not type. Each typed key must also carry every wrong-kind row for its kind (int: "3", 3.0, true, 1979-05-27; bool: "true", 1, 1.0) and an accept row (base#1442 review round 3). |
 
-### test/bats/unit/config_gen_spec.bats (49)
+### test/bats/unit/config_gen_spec.bats (55)
 
 the config generator ships as a Go module under dockerfile/config-gen with
 dockerfile/Dockerfile.config-gen, and nothing on a consumer host builds it.
@@ -2520,6 +2520,12 @@ whole derivation runs inside the fixture. Unit level (ADR-00000018).
 | `config-gen: native predicate refuses a stale digest with one record per shell (base#2035)` | a different digest is a stale binary: fall back to the image and say so once per shell, not once per call. |
 | `config-gen: native predicate refuses a failing or silent version with a stale record (base#2035)` | a binary that cannot say its digest is as unusable as a stale one. |
 | `config-gen: config_gen_native_stale is registered in log-events.txt under base#1848 (base#2035)` | every log event id is registered (base#1848 names this one). |
+| `config-gen: tables runs the native binary with no docker call (base#2036)` | with a native binary built from the shim's own sources, tables runs it and never the container: no docker call at all, not even the image resolve. The list is the one the container gives for the same file (`[a]` and `[b.c]` give a, b, b.c). |
+| `config-gen: tables re-emits the native binary's frame with its status (base#2036)` | a native failure speaks the same way the container's does: its frame is re-emitted as its own event and its status is the answer. |
+| `config-gen: tables refuses a native failure with no frame as config_gen_run_failed (base#2036)` | a native failure with no frame is refused as config_gen_run_failed with the binary's status, as the container path does. |
+| `config-gen: tables stays on the container with CONFIG_GEN_FORCE_DOCKER=1 (base#2036)` | CONFIG_GEN_FORCE_DOCKER=1 keeps the container path exactly as before even with a matching binary present, and that binary is not run for tables. |
+| `config-gen: tables falls back to the container on a stale native digest with one record (base#2036)` | a binary built from other sources is refused once and the container answers. |
+| `config-gen: tables refuses a missing file with no_such_file on the native path (base#2036)` | the stat check comes before the native/container choice. |
 
 ### test/bats/unit/config_summary_spec.bats (2)
 
