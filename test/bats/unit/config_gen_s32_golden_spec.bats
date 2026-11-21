@@ -35,7 +35,7 @@ _check_s32() {
   LOG_FORMAT=json run --separate-stderr bash -c \
     "source '${LIB}/_lib.sh'; source '${LIB}/ini_to_toml_migrate.sh'; _migrate_ini_to_toml '${TEMP_DIR}'"
   assert_success
-  _got="$(printf '%s\n' "${output}${stderr}" \
+  _got="$(printf '%s\n%s\n' "${output}" "${stderr}" \
     | sed -n 's/.*"body":"\([a-z_]*\)".*/\1/p' | paste -sd' ')"
   assert_equal "${_got}" "${_events}"
   assert [ -f "${TESTDATA}/golden/s32/${_name}.toml" ]
