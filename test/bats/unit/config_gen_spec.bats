@@ -1239,3 +1239,133 @@ exit \"\${rc}\""
     assert_output ""
   done
 }
+
+# _cg_native_stub <version-body>
+#   A native `config-gen` placed first on PATH. Every run appends its argv
+#   to ${CG_NATIVE_RUNS}; `version` then runs <version-body>.
+_cg_native_stub() {
+  local _bin="${BATS_TEST_TMPDIR}/native-bin"
+  mkdir -p "${_bin}"
+  export CG_NATIVE_RUNS="${BATS_TEST_TMPDIR}/native.runs"
+  : > "${CG_NATIVE_RUNS}"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "${CG_NATIVE_RUNS}"\n[[ "${1:-}" == version ]] || exit 0\n%s\n' "$1" > "${_bin}/config-gen"
+  chmod +x "${_bin}/config-gen"
+  NATIVE_PATH="${_bin}:${PATH}"
+}
+
+# _cg_own_digest -- the 12 hex after the colon in the tag the shim derives.
+_cg_own_digest() {
+  local _tag
+  _tag="$(_derive)"
+  printf '%s' "${_tag#*:}"
+}
+
+# _cg_native_count <stderr-text> -- config_gen_native_stale records in it.
+_cg_native_count() {
+  local _n
+  _n="$(grep -c '"body":"config_gen_native_stale"' <<< "$1" || true)"
+  printf '%s' "${_n:-0}"
+}
+
+# _cg_path_without_native -- PATH with no `config-gen` on it, whatever the
+#   host or the ci image ships: each PATH dir that holds one is replaced by a
+#   directory of symlinks to everything else in it.
+_cg_path_without_native() {
+  local _dir _out="" _i=0 _shadow _f
+  local -a _dirs
+  IFS=: read -r -a _dirs <<< "${PATH}"
+  for _dir in "${_dirs[@]}"; do
+    if [[ -e "${_dir}/config-gen" ]]; then
+      _i=$((_i + 1))
+      _shadow="${BATS_TEST_TMPDIR}/nonative-${_i}"
+      mkdir -p "${_shadow}"
+      for _f in "${_dir}"/*; do
+        [[ "${_f##*/}" == config-gen ]] && continue
+        ln -s "${_f}" "${_shadow}/${_f##*/}"
+      done
+      _dir="${_shadow}"
+    fi
+    _out="${_out:+${_out}:}${_dir}"
+  done
+  printf '%s' "${_out}"
+}
+
+# why: the native binary is used only when it was built from the same
+#      sources as the shim (base#1848); with none on PATH the shim stays on
+#      the image and says nothing.
+@test "config-gen: native predicate is false with no config-gen on PATH, silently (base#2035)" {
+  _seed_cg_subtree
+  local _p
+  _p="$(_cg_path_without_native)"
+  PATH="${_p}" run bash -c "command -v config-gen"
+  assert_failure
+  LOG_FORMAT=json run --separate-stderr bash -c "export PATH='${_p}'; source '${CG}'; _config_gen_use_native"
+  assert_failure 1
+  assert_output ""
+  assert_equal "$(_cg_native_count "${stderr}")" 0
+}
+
+# why: CONFIG_GEN_FORCE_DOCKER=1 is the caller's veto; the binary is not
+#      even asked for its version.
+@test "config-gen: native predicate honours CONFIG_GEN_FORCE_DOCKER=1 without running the binary (base#2035)" {
+  _seed_cg_subtree
+  local _d
+  _d="$(_cg_own_digest)"
+  _cg_native_stub "printf 'toolchain 1.27.2\ndigest ${_d}\n'"
+  LOG_FORMAT=json CONFIG_GEN_FORCE_DOCKER=1 run --separate-stderr bash -c "export PATH='${NATIVE_PATH}'; source '${CG}'; _config_gen_use_native"
+  assert_failure 1
+  assert_output ""
+  assert_equal "$(_cg_native_count "${stderr}")" 0
+  run cat "${CG_NATIVE_RUNS}"
+  assert_output ""
+}
+
+# why: a binary whose version line carries the shim's own digest was built
+#      from this checkout's module; it may be used.
+@test "config-gen: native predicate accepts a binary carrying the shim's own digest (base#2035)" {
+  _seed_cg_subtree
+  local _d
+  _d="$(_cg_own_digest)"
+  [[ "${_d}" =~ ^[0-9a-f]{12}$ ]] || fail "own digest is not 12 hex: ${_d}"
+  _cg_native_stub "printf 'toolchain 1.27.2\ndigest ${_d}\n'"
+  LOG_FORMAT=json run --separate-stderr bash -c "export PATH='${NATIVE_PATH}'; source '${CG}'; _config_gen_use_native"
+  assert_success
+  assert_output ""
+  assert_equal "$(_cg_native_count "${stderr}")" 0
+}
+
+# why: a different digest is a stale binary: fall back to the image and say
+#      so once per shell, not once per call.
+@test "config-gen: native predicate refuses a stale digest with one record per shell (base#2035)" {
+  _seed_cg_subtree
+  _cg_native_stub "printf 'toolchain 1.27.2\ndigest ffffffffffff\n'"
+  LOG_FORMAT=json run --separate-stderr bash -c "export PATH='${NATIVE_PATH}'; source '${CG}'
+_config_gen_use_native; first=\$?
+_config_gen_use_native; second=\$?
+printf '%s %s' \"\${first}\" \"\${second}\" >&2"
+  assert_success
+  assert_output ""
+  assert_equal "$(_cg_native_count "${stderr}")" 1
+  [[ "${stderr}" == *"1 1" ]] || fail "statuses were not 1 1: ${stderr}"
+}
+
+# why: a binary that cannot say its digest is as unusable as a stale one.
+@test "config-gen: native predicate refuses a failing or silent version with a stale record (base#2035)" {
+  _seed_cg_subtree
+  local _body
+  for _body in "exit 3" ":"; do
+    _cg_native_stub "${_body}"
+    LOG_FORMAT=json run --separate-stderr bash -c "export PATH='${NATIVE_PATH}'; source '${CG}'; _config_gen_use_native"
+    assert_failure 1
+    assert_output ""
+    assert_equal "$(_cg_native_count "${stderr}")" 1
+  done
+}
+
+# why: every log event id is registered (base#1848 names this one).
+@test "config-gen: config_gen_native_stale is registered in log-events.txt under base#1848 (base#2035)" {
+  run grep -n 'config_gen_native_stale' "${ROOT}/dist/script/docker/lib/log-events.txt"
+  assert_success
+  run grep -B3 '^config_gen_native_stale$' "${ROOT}/dist/script/docker/lib/log-events.txt"
+  assert_output --partial "base#1848"
+}

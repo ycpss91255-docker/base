@@ -2456,7 +2456,7 @@ the shell's word and not the Go package's.
 | `s6_sections: every source=shell row is what _setup_conf_check_known reports` | The Go half (TestCheckSectionsCorpus) holds config-gen check on every corpus/s6/sections/ file equal to s6_sections.tsv. This half holds the table's source=shell rows equal to what the real _setup_conf_check_known reports for the same file, so the section-text classification ([logging.""], stage tables, empty arrays judged by their first entry's row) is the shell's, not the Go package's (base#1442 review round 3 finding 1). |
 | `s6_kinds: the int and bool keys are the keys _schema_validate types, each with every wrong-kind row` | The Go half (TestCheckKinds) refuses a value of another TOML kind at every key s6_kinds.tsv marks int or bool. This half holds that set equal to the keys schema.sh itself types, read off _schema_validate on a pinned probe set for every SCHEMA_VALIDATOR key, in both directions: a typed key added to schema.sh with no rows fails here, and so does a row marking a key the shell does not type. Each typed key must also carry every wrong-kind row for its kind (int: "3", 3.0, true, 1979-05-27; bool: "true", 1, 1.0) and an accept row (base#1442 review round 3). |
 
-### test/bats/unit/config_gen_spec.bats (43)
+### test/bats/unit/config_gen_spec.bats (49)
 
 the config generator ships as a Go module under dockerfile/config-gen with
 dockerfile/Dockerfile.config-gen, and nothing on a consumer host builds it.
@@ -2514,6 +2514,12 @@ whole derivation runs inside the fixture. Unit level (ADR-00000018).
 | `config-gen: tables refuses a name whose symlinked parent ends in a newline` | the raw name lnk/layer.toml holds no comma or newline, but its parent lnk is a symlink to a directory whose name ends in a newline, so the file the kernel opens is <wd>/t<LF>/layer.toml. That path cannot be written in a --mount; dropping the trailing newline would mount <wd>/t/layer.toml, another file (here one that exists, holding [other]). The name is refused as unmountable and no container starts. |
 | `config-gen: tables refuses a name whose parent cannot be entered and starts no container` | the parent can vanish between the host's stat and its `cd -P`. A failing cd prints nothing, and without the `&& ... printf x` sentinel check the src would be `/<basename>`, a file at the root the caller never named. Here the image is resolved first (its one inspect is memoised), then cd fails for every directory (a function in the caller's shell, which the `$(...)` inherits): the name is refused as no_such_file before any run, and the outvar stays cleared. |
 | `config-gen: tables removes its temp directory on success and on refusal` | config_gen_tables keeps the binary's stdout and stderr in a temp directory; one left behind per call would fill TMPDIR over a long shell. It is removed whether the run publishes or refuses. |
+| `config-gen: native predicate is false with no config-gen on PATH, silently (base#2035)` | the native binary is used only when it was built from the same sources as the shim (base#1848); with none on PATH the shim stays on the image and says nothing. |
+| `config-gen: native predicate honours CONFIG_GEN_FORCE_DOCKER=1 without running the binary (base#2035)` | CONFIG_GEN_FORCE_DOCKER=1 is the caller's veto; the binary is not even asked for its version. |
+| `config-gen: native predicate accepts a binary carrying the shim's own digest (base#2035)` | a binary whose version line carries the shim's own digest was built from this checkout's module; it may be used. |
+| `config-gen: native predicate refuses a stale digest with one record per shell (base#2035)` | a different digest is a stale binary: fall back to the image and say so once per shell, not once per call. |
+| `config-gen: native predicate refuses a failing or silent version with a stale record (base#2035)` | a binary that cannot say its digest is as unusable as a stale one. |
+| `config-gen: config_gen_native_stale is registered in log-events.txt under base#1848 (base#2035)` | every log event id is registered (base#1848 names this one). |
 
 ### test/bats/unit/config_summary_spec.bats (2)
 

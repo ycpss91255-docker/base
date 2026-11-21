@@ -498,6 +498,10 @@ conf_family_two_spellings
 config_gen_check_usage
 config_gen_check_input_failed
 
+# dist/script/docker/lib/config_gen.sh _config_gen_use_native (base#1848):
+# the native config-gen on PATH is stale against the shim's digest.
+config_gen_native_stale
+
 # dockerfile/config-gen/cmd/config-gen/tables.go (`config-gen tables`,
 # base#1469): the NUL frames it writes for a non-regular input, an input it
 # cannot open, and a failed or short stdout write.
