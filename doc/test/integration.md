@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **285 tests**.
+Integration specs under `test/bats/integration/`: **289 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -195,6 +195,25 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an aside that fails leaves the destination untouched (base#1464)` | If the first rename fails nothing has moved yet; the refusal must name that stage and leave the destination exactly as it was. |
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
+
+### test/bats/integration/config_gen_s93_cmdout_golden_spec.bats (4)
+
+Before any Go code reads `docker info` or `dpkg-query` output, the shell's
+reading of it is pinned. Each corpus file under
+dockerfile/config-gen/testdata/corpus/s93 is the text a stubbed `docker`
+(s93_docker_*) or `dpkg-query` (s93_dpkg_*) prints; the golden under
+testdata/golden/s93/<stem>.golden is the one line `detect_docker_hub_user` /
+`detect_gpu` (dist/script/docker/lib/setup_detect.sh) leaves in its outvar,
+followed by a newline. The spec regenerates every golden from the shell and
+fails on any byte difference, on a corpus file with no golden, and on a
+golden with no corpus file.
+
+| Test | Description |
+|------|-------------|
+| `s93: the nine named corpus files exist` | the issue names nine corpus files; a missing one would silently shrink what is pinned. |
+| `s93: detect_docker_hub_user result matches every golden` | detect_docker_hub_user reads the second field of the Username line and falls back to USER when the line or the value is absent. |
+| `s93: detect_gpu result matches every golden` | detect_gpu is true only when some status line starts with ii. |
+| `s93: every golden has a corpus file` | a golden whose corpus file was deleted would stand for nothing. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (8)
 
