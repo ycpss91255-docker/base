@@ -1,0 +1,9 @@
+rc=0
+mode=640
+--- file
+old1
+keep
+# managed by template (do not remove)
+x
+--- stdout
+--- stderr
