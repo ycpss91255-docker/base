@@ -42,36 +42,43 @@ _check_case() {
 
 # ── one test per case ───────────────────────────────────────────────────────
 
+# why: the legacy baseline fixture lists no stage for the shell, so its golden is empty.
 @test "s43 stage golden: legacy_baseline lists no stage" {
   run _check_case legacy_baseline
   assert_success
 }
 
+# why: the new baseline fixture lists no stage for the shell either, so its golden is empty.
 @test "s43 stage golden: new_baseline lists no stage" {
   run _check_case new_baseline
   assert_success
 }
 
+# why: a devel-test stage is listed by name.
 @test "s43 stage golden: devel_test lists devel-test" {
   run _check_case devel_test
   assert_success
 }
 
+# why: two optional stages come out in file order, one per line.
 @test "s43 stage golden: extract lists headless then gui" {
   run _check_case extract
   assert_success
 }
 
+# why: the list follows the order of the FROM lines, not alphabetical order.
 @test "s43 stage golden: order keeps file order" {
   run _check_case order
   assert_success
 }
 
+# why: a stage declared twice is listed once.
 @test "s43 stage golden: dedup lists a repeated stage once" {
   run _check_case dedup
   assert_success
 }
 
+# why: a FROM inside a comment declares no stage.
 @test "s43 stage golden: lower_comment skips a commented FROM" {
   run _check_case lower_comment
   assert_success
@@ -87,6 +94,7 @@ _check_case() {
   assert_output $'gamma\nalpha\nbeta'
 }
 
+# why: an empty stage list is a 0-byte file, not a file holding a blank line.
 @test "s43 stage golden: baseline goldens are 0-byte files" {
   [[ -f "${GOLDEN}/s43_stage_legacy_baseline.stages" ]]
   [[ ! -s "${GOLDEN}/s43_stage_legacy_baseline.stages" ]]
