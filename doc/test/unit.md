@@ -8924,6 +8924,30 @@ is where a whole-tree scan belongs (base#1075).
 | `_run_test_name_backtick: DIES when the tree holds no spec file at all` | An empty population is the shape that goes green by construction: the specs moved, the lint reads nothing and reports a clean tree |
 | `_run_test_name_backtick: DIES when the spec files carry no '@test' line` | The blind-detector case, and the one that matters most: 4848 '@test' lines exist today, so zero means the anchor stopped matching -- a renamed keyword, a changed convention -- and a blind detector reports every name clean |
 
+### test/bats/unit/test_tools_config_gen_digest_spec.bats (6)
+
+Dockerfile.test-tools stamps `-X main.contentDigest=${CONFIG_GEN_DIGEST}`
+and the shell shim compares that stamp with `tool_image_derive config_gen`.
+A local build that forwards nothing stamps an empty digest. So
+_ensure_test_tools_image must run script/ci/config_gen_digest.sh and hand
+its output to `docker compose build test-tools` as CONFIG_GEN_DIGEST, and
+compose.yaml must list the arg in the bare form so compose passes it on.
+
+The tree is a scratch copy so a config-gen source can be edited. The
+expected digest is the literal observed from the shell library itself
+(`tool_image_derive config_gen` -> config-gen:b3b5e2b5cdca on the seeded
+tree, the same literal config_gen_digest_spec.bats holds), not recomputed
+here. Unit level (ADR-00000018).
+
+| Test | Description |
+|------|-------------|
+| `compose.yaml: test-tools build.args lists CONFIG_GEN_DIGEST in the bare form` | acceptance 1. The bare form, so compose omits the arg when unset. |
+| `_ensure_test_tools_image: the compose build receives CONFIG_GEN_DIGEST` | acceptance 2 and 4. The build sees the digest the script prints on the same checkout, 12 hex. |
+| `_ensure_test_tools_image: a content edit under dockerfile/config-gen changes the recorded digest` | acceptance 4. The value follows the config-gen sources. |
+| `_ensure_test_tools_image: an edit outside dockerfile/config-gen keeps the recorded digest` | acceptance 4. An edit outside dockerfile/config-gen leaves it alone. |
+| `_ensure_test_tools_image: a failing config_gen_digest.sh refuses and does not build` | acceptance 3. A script failure refuses through ci_tooling_build_failed and never reaches `docker compose build`. |
+| `_ensure_test_tools_image: a caller-pinned TEST_TOOLS_IMAGE builds nothing` | acceptance 2. A caller-pinned image returns early and never runs the script, so no build happens. |
+
 ### test/bats/unit/test_tools_pins_spec.bats (18)
 
 The release smoke step ran fifteen probes against the image it had just

@@ -45,8 +45,14 @@ services:
       # local build paths (`just test` via
       # script/test/test.sh, `just docker build --target test-tools`)
       # build THIS service, so both inherit the forwarding.
+      #
+      # CONFIG_GEN_DIGEST is bare for the same reason: `_ensure_test_tools_image`
+      # in script/test/test.sh exports the digest of this checkout
+      # (script/ci/config_gen_digest.sh) and compose forwards it to the
+      # Dockerfile's arg (base#2044).
       args:
         - APK_MIRROR
+        - CONFIG_GEN_DIGEST
     image: ${TEST_TOOLS_IMAGE:?set by 'just test' / 'just docker build --target test-tools' -- run one of those instead of driving docker compose directly}
 
   # smoke: the local harness for the SHIPPED smoke specs
