@@ -1,0 +1,3 @@
+[deploy]
+gpu_runtime = "nvidia"
+

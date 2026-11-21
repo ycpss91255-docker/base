@@ -43,22 +43,32 @@ _check_s32() {
   assert_success
 }
 
+# why: A key written twice converts to one line holding the last value;
+# the golden pins the bytes and the single migrated event.
 @test "s32 a repeated key keeps the last value (base#2056)" {
   _check_s32 s32_repeat_key "ini_to_toml_migrated"
 }
 
+# why: String values are quoted and plain integers stay bare; the golden
+# pins the bytes.
 @test "s32 scalar values quote strings and keep plain integers bare (base#2056)" {
   _check_s32 s32_scalar_values "ini_to_toml_migrated"
 }
 
+# why: A backslash and a literal TAB inside a value are escaped in the
+# quoted string; the golden pins the bytes.
 @test "s32 backslash and tab are escaped in the quoted string (base#2056)" {
   _check_s32 s32_backslash_tab "ini_to_toml_migrated"
 }
 
+# why: A section with no numbered families converts by itself; the golden
+# pins the bytes.
 @test "s32 a section without numbered families converts alone (base#2056)" {
   _check_s32 s32_absent_family "ini_to_toml_migrated"
 }
 
+# why: The deploy runtime key is written as gpu_runtime; the shell logs the
+# rename event before the migrated event, and the golden pins the bytes.
 @test "s32 deploy runtime is renamed to gpu_runtime (base#2056)" {
   _check_s32 s32_runtime_alias "ini_to_toml_runtime_renamed ini_to_toml_migrated"
 }
