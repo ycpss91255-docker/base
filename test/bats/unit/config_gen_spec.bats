@@ -1267,12 +1267,39 @@ _cg_native_count() {
   printf '%s' "${_n:-0}"
 }
 
+# _cg_path_without_native -- PATH with no `config-gen` on it, whatever the
+#   host or the ci image ships: each PATH dir that holds one is replaced by a
+#   directory of symlinks to everything else in it.
+_cg_path_without_native() {
+  local _dir _out="" _i=0 _shadow _f
+  local -a _dirs
+  IFS=: read -r -a _dirs <<< "${PATH}"
+  for _dir in "${_dirs[@]}"; do
+    if [[ -e "${_dir}/config-gen" ]]; then
+      _i=$((_i + 1))
+      _shadow="${BATS_TEST_TMPDIR}/nonative-${_i}"
+      mkdir -p "${_shadow}"
+      for _f in "${_dir}"/*; do
+        [[ "${_f##*/}" == config-gen ]] && continue
+        ln -s "${_f}" "${_shadow}/${_f##*/}"
+      done
+      _dir="${_shadow}"
+    fi
+    _out="${_out:+${_out}:}${_dir}"
+  done
+  printf '%s' "${_out}"
+}
+
 # why: the native binary is used only when it was built from the same
 #      sources as the shim (base#1848); with none on PATH the shim stays on
 #      the image and says nothing.
 @test "config-gen: native predicate is false with no config-gen on PATH, silently (base#2035)" {
   _seed_cg_subtree
-  LOG_FORMAT=json run --separate-stderr bash -c "source '${CG}'; _config_gen_use_native"
+  local _p
+  _p="$(_cg_path_without_native)"
+  PATH="${_p}" run bash -c "command -v config-gen"
+  assert_failure
+  LOG_FORMAT=json run --separate-stderr bash -c "export PATH='${_p}'; source '${CG}'; _config_gen_use_native"
   assert_failure 1
   assert_output ""
   assert_equal "$(_cg_native_count "${stderr}")" 0
