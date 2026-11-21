@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration specs under `test/bats/integration/`: **285 tests**.
+Integration specs under `test/bats/integration/`: **296 tests**.
 
 > Part of the `just test` self-test suite — what runs in the `Self Test`
 > CI job. See [TEST.md](TEST.md) for the index across all test levels and
@@ -195,6 +195,31 @@ snapshot is unchanged; the two usage rows that name no existing <out-dir>
 | `publish: an aside that fails leaves the destination untouched (base#1464)` | If the first rename fails nothing has moved yet; the refusal must name that stage and leave the destination exactly as it was. |
 | `publish: an install that fails with no previous output refuses and leaves nothing (base#1464)` | With no previous output there is nothing to restore; a failed install must still refuse by name and leave neither the destination nor any scratch behind. |
 | `publish: an install and a restore that both fail keep the backup and name it (base#1464)` | When the restore fails too, the bytes must survive somewhere named: the backup is kept and the event says where. |
+
+### test/bats/integration/config_gen_s43_stage_golden_spec.bats (11)
+
+Before any Go parser exists, the shell `_parse_dockerfile_stages`
+(dist/script/docker/lib/stage.sh) is the oracle for the stage list. Every
+dockerfile/config-gen/testdata/corpus/s43/s43_stage_<case>.Dockerfile has
+one golden testdata/golden/s43/s43_stage_<case>.stages holding that
+function's stdout (one stage per line, trailing newline; empty output is a
+0-byte file). The Go side must later match these byte for byte. The spec
+regenerates the list from the shell and compares it with the golden, and a
+partition check keeps fixtures and goldens one-to-one.
+
+| Test | Description |
+|------|-------------|
+| `s43 stage golden: legacy_baseline lists no stage` | the legacy baseline fixture lists no stage for the shell, so its golden is empty. |
+| `s43 stage golden: new_baseline lists no stage` | the new baseline fixture lists no stage for the shell either, so its golden is empty. |
+| `s43 stage golden: devel_test lists devel-test` | a devel-test stage is listed by name. |
+| `s43 stage golden: extract lists headless then gui` | two optional stages come out in file order, one per line. |
+| `s43 stage golden: order keeps file order` | the list follows the order of the FROM lines, not alphabetical order. |
+| `s43 stage golden: dedup lists a repeated stage once` | a stage declared twice is listed once. |
+| `s43 stage golden: lower_comment skips a commented FROM` | a FROM inside a comment declares no stage. |
+| `s43 stage golden: order golden is gamma, alpha, beta` | the issue's table gives the expected stage lists; pin two of them as literals so a wrong golden cannot pass by being regenerated the same way. |
+| `s43 stage golden: baseline goldens are 0-byte files` | an empty stage list is a 0-byte file, not a file holding a blank line. |
+| `s43 stage golden: a missing Dockerfile gives empty output and rc 0` | a missing Dockerfile is not an error, so the Go side needs the same empty output and rc 0. |
+| `s43 stage golden: every fixture has exactly one golden and no extra` | a fixture with no golden, or a golden with no fixture, must fail the spec so the corpus cannot drift from its goldens. |
 
 ### test/bats/integration/deploy_bundle_flow_spec.bats (8)
 
