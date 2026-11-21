@@ -1,0 +1,4 @@
+[logging]
+pat = "a\\b"
+tab = "x\ty"
+

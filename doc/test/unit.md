@@ -2439,6 +2439,23 @@ The planted copy is traced once per file and shared by every case.
 | `config_gen_readers: the run blocks are both config-gen jobs', each matrix value expanded (base#1584)` | cycle 30, review round 2. Each run block runs as the job runs it, so a `${{ matrix.<key> }}` is expanded once per value of the job's matrix: config-gen-redpath runs `just test go-redpath <n>/5` for shards 1..5 (its matrix, which self_test_yaml_spec holds to the shard table), and together the five shards run every redpath case. Both jobs' just-pin blocks are there too. |
 | `config_gen_readers: a run block with an expression it cannot evaluate is refused (base#1584)` | cycle 30, review round 2. An expression other than one matrix key is a value this script would have to guess, so the block is refused rather than run with the expression left in or dropped. |
 
+### test/bats/unit/config_gen_s32_golden_spec.bats (5)
+
+The Go converter that replaces `_migrate_ini_to_toml` must match the shell
+byte for byte. Each corpus/s32/<name>.ini is converted by the shell into a
+temp dir; the resulting setup.toml must equal the committed
+golden/s32/<name>.toml, the event ids the shell logs must equal the list
+below, and the function's return must be 0. The spec fails while a golden is
+missing or differs, so a golden can never drift from the shell.
+
+| Test | Description |
+|------|-------------|
+| `s32 a repeated key keeps the last value (base#2056)` | A key written twice converts to one line holding the last value; the golden pins the bytes and the single migrated event. |
+| `s32 scalar values quote strings and keep plain integers bare (base#2056)` | String values are quoted and plain integers stay bare; the golden pins the bytes. |
+| `s32 backslash and tab are escaped in the quoted string (base#2056)` | A backslash and a literal TAB inside a value are escaped in the quoted string; the golden pins the bytes. |
+| `s32 a section without numbered families converts alone (base#2056)` | A section with no numbered families converts by itself; the golden pins the bytes. |
+| `s32 deploy runtime is renamed to gpu_runtime (base#2056)` | The deploy runtime key is written as gpu_runtime; the shell logs the rename event before the migrated event, and the golden pins the bytes. |
+
 ### test/bats/unit/config_gen_s7_verdicts_spec.bats (2)
 
 Every corpus/s7 fixture carries its expected verdict on one `# expect:`
