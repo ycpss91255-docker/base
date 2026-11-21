@@ -46,21 +46,21 @@ _tokens_of() {
 # why: an input without a golden is compared against nothing, and a golden
 # without an input is a record of nothing.
 @test "every s25 input has a golden, and no golden is orphaned" {
-  local _f _stem _missing=""
+  local _f _g _stem _missing="" _orphan=""
   for _f in "${CORPUS}"/*.ini; do
     _stem="$(basename "${_f}" .ini)"
     [[ -s "${GOLDEN}/${_stem}.tokens.golden" ]] || _missing+=" ${_stem}"
   done
-  [[ -z "${_missing}" ]] || {
-    echo "inputs without a non-empty golden:${_missing}" >&2
-    return 1
-  }
-  local _g
   for _g in "${GOLDEN}"/*.tokens.golden; do
     [[ -f "${_g}" ]] || continue
     _stem="$(basename "${_g}" .tokens.golden)"
-    [[ -f "${CORPUS}/${_stem}.ini" ]] || return 1
+    [[ -f "${CORPUS}/${_stem}.ini" ]] || _orphan+=" ${_stem}"
   done
+  [[ -z "${_missing}${_orphan}" ]] || {
+    echo "inputs without a non-empty golden:${_missing}" >&2
+    echo "goldens without an input:${_orphan}" >&2
+    return 1
+  }
 }
 
 # why: this is the record itself: the shell answer the Go reader must
