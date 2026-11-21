@@ -11,10 +11,12 @@
 # stay put for everything else, and refuse (empty stdout, non-zero) when no
 # digest can be derived.
 #
-# The subtree is a scratch copy so the script runs against a seeded tree.
-# The expected digest is the literal observed from the shell library itself
-# (`tool_image_derive config_gen` -> config-gen:b3b5e2b5cdca), not recomputed
-# here. Unit level (ADR-00000018).
+# The subtree is a scratch tree so the script runs against a seeded one. The
+# config-gen inputs in it are a small FIXED synthetic set, not a copy of the
+# live dockerfile/config-gen, so adding a file there (a corpus testdata file,
+# say) cannot move the expected digest (base#2104). The expected digest is the
+# literal the real script printed for that fixed tree, not recomputed here.
+# Unit level (ADR-00000018).
 
 bats_require_minimum_version 1.5.0
 
@@ -22,8 +24,8 @@ setup() {
   export LOG_FORMAT=json
   load "${BATS_TEST_DIRNAME}/test_helper"
   ROOT=/source
-  # Observed on the tree these sources are copied from.
-  WANT_DIGEST="b3b5e2b5cdca"
+  # Observed from the script on the fixed synthetic tree of _seed_digest_tree.
+  WANT_DIGEST="c86a33f64423"
 }
 
 teardown() {
@@ -31,24 +33,31 @@ teardown() {
 }
 
 # _seed_digest_tree [--no-dockerfile]
-#   A scratch copy holding dist/, the config-gen build inputs, the
-#   test-tools Dockerfile, the script under test and `.version`.
+#   A scratch tree holding the live dist/ library and script under test, a
+#   fixed synthetic Dockerfile.config-gen + config-gen/ context, a fixed
+#   Dockerfile.test-tools and `.version`. Only dist/ and the script come
+#   from ${ROOT}; nothing under ${ROOT}/dockerfile is read.
 _seed_digest_tree() {
   SUB="${BATS_TEST_TMPDIR}/tree"
   mkdir -p "${SUB}/dist/script/docker" "${SUB}/dockerfile" "${SUB}/script/ci"
   cp -a "${ROOT}/dist/script/docker/lib" "${SUB}/dist/script/docker/lib"
   if [[ "${1:-}" != "--no-dockerfile" ]]; then
-    cp -a "${ROOT}/dockerfile/Dockerfile.config-gen" "${SUB}/dockerfile/"
-    cp -a "${ROOT}/dockerfile/config-gen" "${SUB}/dockerfile/config-gen"
+    mkdir -p "${SUB}/dockerfile/config-gen/internal"
+    printf 'FROM scratch\nCOPY . /src\n' > "${SUB}/dockerfile/Dockerfile.config-gen"
+    printf 'module example.test/config-gen\n\ngo 1.22\n' \
+      > "${SUB}/dockerfile/config-gen/go.mod"
+    printf 'package main\n\nfunc main() {}\n' \
+      > "${SUB}/dockerfile/config-gen/main.go"
+    printf 'package internal\n' > "${SUB}/dockerfile/config-gen/internal/a.go"
   fi
-  cp -a "${ROOT}/dockerfile/Dockerfile.test-tools" "${SUB}/dockerfile/"
+  printf 'FROM scratch\n' > "${SUB}/dockerfile/Dockerfile.test-tools"
   cp -a "${ROOT}/script/ci/config_gen_digest.sh" "${SUB}/script/ci/"
   printf 'v0.0.0-test\n' > "${SUB}/.version"
   DIGEST_SH="${SUB}/script/ci/config_gen_digest.sh"
 }
 
-# why: acceptance 1. One line, 12 lowercase hex, exit 0, equal to the part
-#      after the colon of the shell library's own answer on this tree.
+# why: acceptance 1. One line, 12 lowercase hex, exit 0, equal to the digest
+#      pinned in WANT_DIGEST for the fixed synthetic tree.
 @test "config_gen_digest: prints the 12 hex of config-gen:<digest>, one line, exit 0" {
   _seed_digest_tree
   run --separate-stderr bash "${DIGEST_SH}"
@@ -98,4 +107,21 @@ _seed_digest_tree() {
   [[ "${stderr}" == *'"body":"config_gen_unprovisionable"'* ]]
   [[ "${stderr}" == *'cannot build the config generator image:'* ]]
   [[ "${stderr}" == *'Dockerfile.config-gen'* ]]
+}
+
+# why: base#2104. The spec must not read the live
+#      dockerfile/config-gen: a checkout whose dockerfile/ holds an extra
+#      testdata file gives the same pinned digest.
+@test "config_gen_digest: an extra testdata file in the live checkout does not move the digest" {
+  LIVE="${BATS_TEST_TMPDIR}/live"
+  mkdir -p "${LIVE}/dockerfile/config-gen/testdata" "${LIVE}/script"
+  cp -a "${ROOT}/dist" "${LIVE}/dist"
+  cp -a "${ROOT}/script/ci" "${LIVE}/script/ci"
+  cp -a "${ROOT}/dockerfile/Dockerfile.config-gen" "${LIVE}/dockerfile/"
+  printf '{}\n' > "${LIVE}/dockerfile/config-gen/testdata/new_corpus.json"
+  ROOT="${LIVE}"
+  _seed_digest_tree
+  run --separate-stderr bash "${DIGEST_SH}"
+  assert_success
+  assert_output "${WANT_DIGEST}"
 }
