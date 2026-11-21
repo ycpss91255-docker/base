@@ -56,8 +56,8 @@ _seed_digest_tree() {
   DIGEST_SH="${SUB}/script/ci/config_gen_digest.sh"
 }
 
-# why: acceptance 1. One line, 12 lowercase hex, exit 0, equal to the part
-#      after the colon of the shell library's own answer on this tree.
+# why: acceptance 1. One line, 12 lowercase hex, exit 0, equal to the digest
+#      pinned in WANT_DIGEST for the fixed synthetic tree.
 @test "config_gen_digest: prints the 12 hex of config-gen:<digest>, one line, exit 0" {
   _seed_digest_tree
   run --separate-stderr bash "${DIGEST_SH}"
@@ -109,7 +109,7 @@ _seed_digest_tree() {
   [[ "${stderr}" == *'Dockerfile.config-gen'* ]]
 }
 
-# why: acceptance 3 (base#2104). The spec must not read the live
+# why: base#2104. The spec must not read the live
 #      dockerfile/config-gen: a checkout whose dockerfile/ holds an extra
 #      testdata file gives the same pinned digest.
 @test "config_gen_digest: an extra testdata file in the live checkout does not move the digest" {
