@@ -193,7 +193,9 @@ jobs:
 
       - name: Compute config-gen digest
         id: config_gen_digest
-        run: echo "config_gen_digest=$(script/ci/config_gen_digest.sh)" >> "$GITHUB_OUTPUT"
+        run: |
+          _d="$(script/ci/config_gen_digest.sh)"
+          echo "config_gen_digest=${_d}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4.6.0
